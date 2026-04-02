@@ -15,12 +15,14 @@ import os
 from jinja2 import Environment, FileSystemLoader
 
 class Generator:
-    def __init__(self, type_map_path):
+    def __init__(self, type_map_path, escape_symbol='_'): # Default to '_'
         if os.path.exists(type_map_path):
             with open(type_map_path, 'r') as f:
                 self.type_map = json.load(f)
         else:
             self.type_map = {}
+            
+        self.escape_symbol = escape_symbol
         self.reserved = {
             'type', 'var', 'procedure', 'function', 'record', 'end', 'begin', 'if', 
             'then', 'else', 'while', 'do', 'repeat', 'until', 'for', 'to', 'downto', 
@@ -32,9 +34,12 @@ class Generator:
         }
 
     def pas_name(self, name):
+        """Sanitizes Delphi reserved words using the chosen escape symbol."""
         if not name: return ""
-        return f"_{name}" if name.lower() in self.reserved else name
-
+        if name.lower() in self.reserved:
+            return f"{self.escape_symbol}{name}"
+        return name
+    
     def pas_type(self, info):
         name = info['name']
         depth = info.get('pointer_depth', 0)
@@ -91,13 +96,18 @@ def match_test(value, pattern):
     return bool(re.search(pattern, str(value)))
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--json", required=True); parser.add_argument("--template", required=True)
-    parser.add_argument("--type-map", required=True); parser.add_argument("--out", required=True)
+    parser = argparse.ArgumentParser(description="TaurusTLS Pascal Generator")
+    parser.add_argument("--json", required=True)
+    parser.add_argument("--template", required=True)
+    parser.add_argument("--type-map", required=True)
+    parser.add_argument("--out", required=True)
+    # Add the escape symbol argument with restricted choices
+    parser.add_argument("--escape-symbol", choices=['_', '&'], default='_', help="Symbol to escape reserved words ('_' or '&')")
     args = parser.parse_args()
 
     with open(args.json, 'r', encoding='utf-8') as f: db = json.load(f)
-    gen = Generator(args.type_map)
+    # Pass the argument to your Generator
+    gen = Generator(args.type_map, args.escape_symbol)
 
     # Define local variables for the status print
     routines = [r for r in db['routines'] if not r.get('is_macro') and not r.get('is_inline')]
