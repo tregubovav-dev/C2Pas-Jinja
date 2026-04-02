@@ -26,15 +26,17 @@ The toolchain operates in two distinct phases:
 ```text
 C2Pas-Jinja/
 ├── Source/
-│   ├── c2Meta.py               # The Clang-based AST Extractor
-│   └── Meta2Pas.py             # The Jinja2-based Pascal Generator
+│   ├── c2Meta.py                   # The Clang-based AST Extractor
+│   └── Meta2Pas.py                 # The Jinja2-based Pascal Generator
 ├── Examples/
-│   ├── TaurusTLS_typemap.json  # Standard C-to-Delphi type mappings
-│   └── taurustls.j2            # Sample TaurusTLS-style template
+│   ├── TaurusTLSHeader_obj_mac.j2
+│   ├── TaurusTLS_typemap.json      # TaurusTLS C-to-Delphi type mappings (IndySocket based)
+│   └── TaurusTLSHeader.j2          # Sample TaurusTLS-style template
 ├── Doc/
-│   ├── Usage.md                # Detailed command-line instructions
-│   └── Architecture.md         # Technical outline of the pipeline
-└── LICENSE                     # MIT License
+│   ├── Usage.md                    # Detailed command-line instructions
+│   └── Design.md                   # Technical outline of the pipeline
+├── LICENSE                         # MIT License
+└── README.md                       # This file
 ```
 
 ## Quick Start
