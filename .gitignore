@@ -1,0 +1,38 @@
+# === Python Artifacts ===
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# === C/C++ Input Artifacts (OpenSSL Headers) ===
+# We ignore these because users should provide their own local OpenSSL build
+*.c
+*.h
+# Also ignore an openssl directory if cloned inside the project
+openssl/
+
+# === Pascal/Delphi Output Artifacts ===
+# We ignore the generated units and include files
+*.pas
+*.inc
+*.dcu
+*.exe
+*.dll
+*.so
+*.dylib
+
+# === JSON Data Files ===
+# Ignore intermediate JSON databases (like evp.json)
+*.json
+
+# EXCEPTIONS: Keep the example type maps and configurations
+!Examples/*.json
+
+# === OS & IDE Files ===
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
