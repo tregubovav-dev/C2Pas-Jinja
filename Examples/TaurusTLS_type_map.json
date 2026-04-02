@@ -1,0 +1,9 @@
+{
+    "int": "TIdC_INT", "unsigned int": "TIdC_UINT", "long": "TIdC_LONG", "unsigned long": "TIdC_ULONG",
+    "short": "Int16", "unsigned short": "UInt16", "long long": "Int64", "unsigned long long": "UInt64",
+    "size_t": "TIdC_SIZET", "ssize_t": "TIdC_SSIZET", "time_t": "TIdC_TIME_T",
+    "float": "Single", "double": "Double",
+    "void": "Void", "int32_t": "Int32", "uint32_t": "UInt32", "int64_t": "Int64", "uint64_t": "UInt64",
+    "unsigned char": {"0": "TIdC_UCHAR", "1": "PIdAnsiChar"}, "char": {"0": "TIdC_CHAR", "1": "PIdAnsiChar"},
+    "OSSL_PARAM": {"0": "TOSSL_PARAM", "1": "POSSL_PARAM_ARRAY"}
+}

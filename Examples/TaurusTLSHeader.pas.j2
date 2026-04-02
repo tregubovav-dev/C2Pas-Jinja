@@ -1,0 +1,254 @@
+{$I ..\TaurusTLSCompilerDefines.inc}
+{$I ..\TaurusTLSLinkDefines.inc}
+{$IFNDEF USE_OPENSSL}
+  { error Should not compile if USE_OPENSSL is not defined!!!}
+{$ENDIF}
+{******************************************************************************}
+{*  TaurusTLS                                                                 *}
+{*           https://github.com/JPeterMugaas/TaurusTLS                        *}
+{*                                                                            *}
+{*  Copyright (c) 2024 TaurusTLS Developers, All Rights Reserved              *}
+{*                                                                            *}
+{* Portions of this software are Copyright (c) 1993 – 2018,                   *}
+{* Chad Z. Hower (Kudzu) and the Indy Pit Crew – http://www.IndyProject.org/  *}
+{******************************************************************************}
+
+unit TaurusTLSHeaders_{{ header.split('.')[0] }};
+
+interface
+
+uses
+  IdCTypes,
+  IdGlobal,
+  TaurusTLSHeaders_bio,
+  TaurusTLSHeaders_obj_mac,
+  {$IFDEF OPENSSL_STATIC_LINK_MODEL}
+  TaurusTLSConsts,
+  {$ENDIF}
+  TaurusTLSHeaders_types,
+  TaurusTLSHeaders_core;
+
+{# --- FILTER TYPES --- #}
+{% if types %}
+type
+// =============================================================================
+// TYPE DECLARATIONS
+// =============================================================================
+  {% for t in types %}
+  P{{ t.name }} = ^T{{ t.name }};
+  {% if t.kind == "struct" %}  T{{ t.name }} = record end; {% endif %}
+  {% if t.kind == "alias" %}  T{{ t.name }} =  T{{ t.parent_type.name }}; {% endif +%}
+  {$EXTERNALSYM P{{ t.name }}}
+
+  {% endfor %}
+{% endif %}
+
+{% for e in enums %}
+  // Enum: {{ e.name }}
+{% for v in e.values %}
+  {{ v.name | pas_name }} = {{ v.value }};
+{% endfor %}
+{% endfor %}
+
+{% if callbacks %}
+// =============================================================================
+// CALLBACK TYPE DECLARATIONS
+// =============================================================================
+
+type
+{% for c in callbacks %}
+  {{ c.name }} = {{ c | pas_sig(is_var=True) }};
+{% endfor %}
+{% endif %}
+
+{% if constants %}
+// =============================================================================
+// CALLBACK TYPE DECLARATIONS
+// =============================================================================
+
+const
+  {% for c in constants %}
+  {{ c.name | pas_name }} = {{ c.value | pas_expression }};
+  {% endfor %}
+{% endif %}
+
+{$IFNDEF OPENSSL_STATIC_LINK_MODEL}
+{% if routines %}
+var
+// =============================================================================
+// DYNMAIC BINDING VARIABLES
+// =============================================================================
+
+  {% for r in routines if not r.is_macro and not r.is_inline %}
+    {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+  {{ r.name }}: {{ r | pas_sig(is_var=True) }} = nil;{% if r.deprecated %} // Deprecated in {{ r.deprecated }}{% endif +%}
+  {$EXTERNALSYM {{ r.name }}}
+
+    {% endif %}
+  {% endfor %}
+{% endif %}
+{$ENDIF OPENSSL_STATIC_LINK_MODEL}
+
+{$IFDEF OPENSSL_STATIC_LINK_MODEL}
+// =============================================================================
+// STATIC BINDING ROUTINES
+// =============================================================================
+
+{% for r in routines if not r.is_macro and not r.is_inline %}
+  {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+{{ r | pas_sig }};{% if r.deprecated %} deprecated 'In OpenSSL {{ r.deprecated }}';{% endif +%}
+  {% endif %}
+{% endfor %}
+{$ENDIF OPENSSL_STATIC_LINK_MODEL}
+
+// =============================================================================
+// INLINE OR MACRO ROUTINES
+// =============================================================================
+
+{% for r in static_routines %}
+{{ r | pas_sig }};{% if r.deprecated %} deprecated 'In OpenSSL {{ r.deprecated }}';{% endif +%}
+  {$IFDEF USE_INLINE}inline; {$ENDIF}
+
+{% endfor %}
+
+implementation
+
+uses
+  {$IFNDEF OPENSSL_STATIC_LINK_MODEL}
+  classes,
+  TaurusTLSLoader,
+  {$ENDIF}
+  TaurusTLS_ResourceStrings,
+  TaurusTLSExceptionHandlers,
+  TaurusTLSHeaders_crypto,
+  TaurusTLSHeaders_objects;
+
+{$IFDEF OPENSSL_STATIC_LINK_MODEL}
+// =============================================================================
+// STATIC BINDING ROUTINES IMPORTS
+// =============================================================================
+
+{% for r in routines if not r.is_macro and not r.is_inline %}
+  {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+{{ r | pas_sig }} external CLibCrypto name '{{ r.name }}';
+  {% endif %}
+{% endfor %}
+{$ENDIF}
+
+// =============================================================================
+// DYNAMIC BINDING ROUTINES CONSTANTS
+// =============================================================================
+
+const
+{% for r in routines if not r.is_macro and not r.is_inline %}
+  {% set v_intro = r.introduced | version_val %}
+  {% set v_deprec = r.deprecated | version_val if r.deprecated else 0 %}
+  {% if not r.deprecated or v_deprec > "1_1_0" | version_val %}
+
+  {{ r.name }}_procname = '{{ r.name }}';
+  {% if r.introduced %}
+    {% if v_deprec == 0 or v_deprec > v_intro %}
+  {{ r.name }}_introduced = {{ r.introduced | pas_version }};
+    {% elif v_deprec < v_intro %}
+  {{ r.name }}_introduced = {{ r.introduced | pas_version }}; {$MESSAGE Warn 'Incorrect "Introduced/Deprecated version"'}
+    {% endif %}
+  {% endif %}
+  {% if r.deprecated %}
+  {{ r.name }}_removed = {{ r.deprecated | pas_version }};
+  {% endif %}
+{% endif %}
+{% endfor %}
+
+// =============================================================================
+// INLINE/MACRO IMPLEMENTATIONS
+// =============================================================================
+
+{% for r in static_routines %}
+{{ r | pas_sig | replace("; cdecl;", "; cdecl") }}
+begin
+ { TODO 1 -copenssl inline routines : To replace placeholder body with the actual code. }
+  { Original C Declaration:
+    {{ r.c_decl }}
+  }
+  // This is an inline routine or macro. Manual implementation required if needed.
+end;
+
+{% endfor %}
+
+// =============================================================================
+// FORWARD and REMOVE COMPATIBILITY IMPLEMENTATIONS
+// =============================================================================
+{ TODO 1 -cinline forrward and remove compatibility routines : To add required procedures/functions. }
+
+// =============================================================================
+// ERRORS STUBS
+// =============================================================================
+{% for r in routines if not r.is_macro and not r.is_inline %}
+  {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+{{ r | pas_sig(prefix="ERR_") | replace("; cdecl;", "; cdecl") }}
+begin
+  ETaurusTLSAPIFunctionNotPresent.RaiseException({{ r.name }}_procname);
+end;
+
+  {% endif %}
+{% endfor %}
+
+{$IFNDEF OPENSSL_STATIC_LINK_MODEL}
+procedure Load(procedure Load(const ADllHandle: TIdLibHandle; LibVersion: TIdC_UINT;
+  const AFailed: TStringList);
+var
+  FuncLoadError: Boolean;
+begin
+{% for r in routines if not r.is_macro and not r.is_inline %}
+  {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+  {{ r.name }} := LoadLibFunction(ADllHandle, {{ r.name }}_procname);
+  FuncLoadError := not assigned({{ r.name }});
+  if FuncLoadError then
+  begin
+    {$if not defined({{ r.name }}_allownil)}
+    {{ r.name }} := ERR_{{ r.name }};
+    {$ifend}
+    {$if declared({{ r.name }}_introduced)}
+    if LibVersion < {{ r.name }}_introduced then
+    begin
+      {$if declared(FC_{{ r.name }})}
+      {{ r.name }} := FC_{{ r.name }};
+      {$ifend}
+      FuncLoadError := false;
+    end;
+    {$ifend}
+    {$if declared({{ r.name }}_removed)}
+    if {{ r.name }}_removed <= LibVersion then
+    begin
+      {$if declared(_{{ r.name }})}
+      {{ r.name }} := _{{ r.name }};
+      {$ifend}
+      FuncLoadError := false;
+    end;
+    {$ifend}
+    {$if not defined({{ r.name }}_allownil)}
+    if FuncLoadError then
+      AFailed.Add('{{ r.name }}');
+    {$ifend}
+  end;
+  {% endif %}
+  
+{% endfor %}
+end;
+
+procedure Unload;
+begin
+{% for r in routines if not r.is_macro and not r.is_inline %}
+  {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+  {{ r.name }} := nil;
+  {% endif %}
+{% endfor %}
+end;
+{$ENDIF}
+
+{$IFNDEF OPENSSL_STATIC_LINK_MODEL}
+initialization
+  Register_SSLLoader(Load,'LibCrypto');
+  Register_SSLUnloader(Unload);
+{$ENDIF}
+end.
