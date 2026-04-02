@@ -124,7 +124,7 @@ if __name__ == "__main__":
     template = env.get_template(args.template)
     output = template.render(header=db.get('header', 'unknown.h'), routines=routines, static_routines=static_routines, callbacks=callbacks, constants=constants, types=types, enums=enums)
     
-    with open(args.out, "w", encoding="utf-8") as f: f.write(output)
+    with open(args.out, "w", encoding="utf-8", newline='\r\n') as f: f.write(output)
 
     print("\n" + "="*50)
     print(f"C2PAS-JINJA GENERATION COMPLETE")
