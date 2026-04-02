@@ -4,7 +4,7 @@
 
 Before running the extractor, you must have a correctly prepared OpenSSL source tree. 
 
-1.  **Clone and Checkout**: Use the branch corresponding to your target version (e.g., `openssl-3.6`).
+1.  **Download OpenSSL Release** or **Clone and Checkout**: Use the branch corresponding to your target version (e.g., `openssl-3.6`).
 2.  **Configure and Build**: Run `./config` and `make`. 
     *   **Why?** OpenSSL generates several headers dynamically (like `opensslconf.h`). If these are missing, Clang will not be able to resolve platform-specific types, leading to incomplete JSON metadata.
 
@@ -12,11 +12,11 @@ Before running the extractor, you must have a correctly prepared OpenSSL source 
 
 ## 2. Step 1: Extracting to JSON
 
-The `ast2json.py` script analyzes the C source and produces a language-agnostic API database.
+The `Meta2Pas.py` script analyzes the C source and produces a language-agnostic API database.
 
 ### Command Example
 ```bash
-python Source/ast2json.py \
+python Source/Meta2Pas.py \
   --header /path/to/openssl/include/openssl/evp.h \
   --search /path/to/openssl/include \
   --num /path/to/openssl/util/libcrypto.num \
@@ -33,11 +33,11 @@ python Source/ast2json.py \
 
 ## 3. Step 2: Generating the Pascal Unit
 
-The `json2pas.py` script takes the JSON database and applies a Jinja2 template to create the `.pas` file.
+The `C2Meta.py` script takes the JSON database and applies a Jinja2 template to create the `.pas` file.
 
 ### Command Example
 ```bash
-python Source/json2pas.py \
+python Source/C2Meta.py \
   --json evp.json \
   --template Examples/taurustls_advanced.j2 \
   --type-map Examples/delphi_map.json \
@@ -141,4 +141,4 @@ end;
 ## 5. Troubleshooting
 *   **Zero Routines Extracted**: Ensure you are pointing to the `include/openssl/` headers and that you have run `make` in the OpenSSL directory.
 *   **Type Mismatch**: Check `delphi_map.json`. Ensure you are using the correct pointer depth (e.g., `"1": "PByte"`) for types that should not use the default `P` prefix logic.
-*   **Jinja2 Errors**: If you get a `version_val` not found error, ensure you are using the latest version of `json2pas.py` where the filter is registered.
+*   **Jinja2 Errors**: If you get a `version_val` not found error, ensure you are using the latest version of `C2Meta.py` where the filter is registered.

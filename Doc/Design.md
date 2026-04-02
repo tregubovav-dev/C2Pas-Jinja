@@ -28,7 +28,7 @@ The extractor expects the following OpenSSL directory layout:
 
 ---
 
-## 2. Stage 1: The Extractor (`ast2json.py`)
+## 2. Stage 1: The Extractor (`Meta2Pas.py`)
 
 The extractor's job is to turn a C header into a language-agnostic "API Database."
 
@@ -48,7 +48,7 @@ The tool uses `libclang` to parse the header. Unlike regex-based tools, this und
 
 ---
 
-## 3. Stage 2: The Generator (`json2pas.py`)
+## 3. Stage 2: The Generator (`C2Meta.py`)
 
 The generator consumes the JSON database and applies a Jinja2 template to produce the final `.pas` unit.
 
@@ -72,7 +72,7 @@ To support Pascal's unique syntax, the generator registers several custom filter
         |                        |
         +----------+-------------+
                    |
-        [ Stage 1: ast2json.py ] <--- (Clang AST)
+        [ Stage 1: Meta2Pas.py ] <--- (Clang AST)
                    |
         [ Language-Agnostic JSON ]
                    |
@@ -82,7 +82,7 @@ To support Pascal's unique syntax, the generator registers several custom filter
         |                        |
         +----------+-------------+
                    |
-        [ Stage 2: json2pas.py ]
+        [ Stage 2: C2Meta.py ]
                    |
         [ Final Pascal Unit (.pas) ]
 ```
