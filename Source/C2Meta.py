@@ -1,3 +1,13 @@
+# =============================================================================
+# C2Pas-Jinja Toolchain - Generator
+#
+# This software is released under the MIT License.
+# See the LICENSE file in the project root for more information.
+#
+# Copyright (c) 2025 TaurusTLS Developers
+# Developed with assistance from Google Gemini AI.
+# =============================================================================
+
 import os
 import sys
 import json
