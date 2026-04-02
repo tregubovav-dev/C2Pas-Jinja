@@ -8,8 +8,8 @@ Originally developed for the [TaurusTLS](https://github.com/TaurusTLS-Developers
 
 The toolchain operates in two distinct phases:
 
-1.  **Extraction (`ast2json.py`)**: Uses the **Clang AST** (Abstract Syntax Tree) library to parse C headers into a comprehensive, language-agnostic **JSON format**. This intermediate "database" captures types, constants, enums, and routines in a way that allows for the accurate reconstruction of the API in other languages.
-2.  **Generation (`json2pas.py`)**: Utilizes the **Jinja2 template language** to transform the JSON metadata into Pascal units. This ensures that the logic of the output is entirely decoupled from the parser.
+1.  **Extraction (`c2Meta.py`)**: Uses the **Clang AST** (Abstract Syntax Tree) library to parse C headers into a comprehensive, language-agnostic **JSON format**. This intermediate "database" captures types, constants, enums, and routines in a way that allows for the accurate reconstruction of the API in other languages.
+2.  **Generation (`Meta2Pas.py`)**: Utilizes the **Jinja2 template language** to transform the JSON metadata into Pascal units. This ensures that the logic of the output is entirely decoupled from the parser.
 
 ## Key Features
 
@@ -26,22 +26,22 @@ The toolchain operates in two distinct phases:
 ```text
 C2Pas-Jinja/
 ├── Source/
-│   ├── ast2json.py    # The Clang-based AST Extractor
-│   └── json2pas.py    # The Jinja2-based Pascal Generator
+│   ├── c2Meta.py               # The Clang-based AST Extractor
+│   └── Meta2Pas.py             # The Jinja2-based Pascal Generator
 ├── Examples/
-│   ├── delphi_map.json # Standard C-to-Delphi type mappings
-│   └── taurustls.j2    # Sample TaurusTLS-style template
+│   ├── TaurusTLS_typemap.json  # Standard C-to-Delphi type mappings
+│   └── taurustls.j2            # Sample TaurusTLS-style template
 ├── Doc/
-│   ├── Usage.md       # Detailed command-line instructions
-│   └── Architecture.md # Technical outline of the pipeline
-└── LICENSE            # MIT License
+│   ├── Usage.md                # Detailed command-line instructions
+│   └── Architecture.md         # Technical outline of the pipeline
+└── LICENSE                     # MIT License
 ```
 
 ## Quick Start
 
 ### 1. Extract C Header to JSON
 ```bash
-python Source/ast2json.py \
+python Source/c2Meta.py \
   --header /path/to/openssl/evp.h \
   --search /path/to/openssl/include \
   --num /path/to/utlils/libcrypto.num \
@@ -51,7 +51,7 @@ python Source/ast2json.py \
 
 ### 2. Generate Pascal Unit
 ```bash
-python Source/json2pas.py \
+python Source/Meta2Pas.py \
   --json evp.json \
   --template Examples/taurustls.j2 \
   --type-map Examples/delphi_map.json \
@@ -69,9 +69,9 @@ python Source/json2pas.py \
 
 ## License
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for the full text.
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE.md) file for the full text.
 
 ## Credits & Acknowledgments
 
-- **Author:** [TaurusTLS Developers](https://github.com/TaurusTLS-Developers)
+- **Author:** [tregubovav.dev](https://github.com/tregubovav-dev) and [TaurusTLS Developers](https://github.com/TaurusTLS-Developers)
 - **Architectural Assistance:** The core logic of this toolchain—including the Clang AST extraction patterns, anonymous callback promotion, and the Jinja2 filtering engine—was architected and implemented with the assistance of **Google Gemini AI**.
