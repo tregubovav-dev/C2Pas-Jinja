@@ -41,22 +41,64 @@ class Generator:
         return name
     
     def pas_type(self, info):
+        """
+        Translates C type info to Pascal types with hierarchical mapping priority.
+        """
         name = info['name']
-        depth = info.get('pointer_depth', 0)
+        target_depth = info.get('pointer_depth', 0)
         mapping = self.type_map.get(name, name)
-        if isinstance(mapping, dict):
-            depth_key = str(depth)
-            if depth_key in mapping: return mapping[depth_key]
-            base = mapping.get("0", name)
-        else: base = mapping
-        if depth == 0: return base
-        if depth == 1:
-            if base == 'Void': return "Pointer"
-            return "P" + base if not (base.startswith('P') and len(base) > 1 and base[1].isupper()) else "P" + base
-        if depth == 2:
-            return "PP" + base
-        return ("P" * depth) + base
 
+        # Normalize mapping to a dict for consistent processing
+        if not isinstance(mapping, dict):
+            # If it's a string, treat it as depth 0
+            mapping = {"0": mapping}
+
+        # 1. Check for Exact Match
+        depth_key = str(target_depth)
+        if depth_key in mapping:
+            return mapping[depth_key]
+
+        # 2. Find the "Upper" (highest defined) depth M where M < target_depth
+        defined_depths = sorted([int(k) for k in mapping.keys()], reverse=True)
+        base_depth = 0
+        for d in defined_depths:
+            if d < target_depth:
+                base_depth = d
+                break
+        
+        base_type = mapping[str(base_depth)]
+        
+        if target_depth == 0:
+            return base_type
+
+        # 3. Apply Prefixing Logic
+        if base_depth == 0:
+            # Rule: Replace T with P and add (target_depth - 1) prefixes
+            if base_type == 'Void':
+                # Special case: void* is Pointer, void** is PPointer
+                res = "Pointer"
+                for _ in range(target_depth - 1):
+                    res = "P" + res
+                return res
+            
+            # Standard T -> P replacement logic
+            if base_type.startswith('T') and len(base_type) > 1 and base_type[1].isupper():
+                res = "P" + base_type[1:]
+            else:
+                res = "P" + base_type
+            
+            # Add the remaining P prefixes (pointer_depth - 1)
+            for _ in range(target_depth - 1):
+                res = "P" + res
+            return res
+        else:
+            # Rule: Build from an existing pointer type (e.g., depth 1 -> depth 2)
+            # Add P times (target_depth - base_depth)
+            res = base_type
+            for _ in range(target_depth - base_depth):
+                res = "P" + res
+            return res
+        
     def pas_version(self, ver_str):
         if not ver_str: return None
         p = str(ver_str).replace('.', '_').split('_')
