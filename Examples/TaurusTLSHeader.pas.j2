@@ -94,7 +94,7 @@ var
 // STATIC BINDING ROUTINES
 // =============================================================================
 
-{% for r in routines if not r.is_macro and not r.is_inline %}
+{% for r in routines %}
   {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
 {{ r | pas_sig }};{% if r.deprecated %} deprecated 'In OpenSSL {{ r.deprecated }}';{% endif +%}
   {% endif %}
@@ -128,7 +128,7 @@ uses
 // STATIC BINDING ROUTINES IMPORTS
 // =============================================================================
 
-{% for r in routines if not r.is_macro and not r.is_inline %}
+{% for r in routines %}
   {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
 {{ r | pas_sig }} external CLibCrypto name '{{ r.name }}';
   {% endif %}
@@ -140,7 +140,7 @@ uses
 // =============================================================================
 
 const
-{% for r in routines if not r.is_macro and not r.is_inline %}
+{% for r in routines %}
   {% set v_intro = r.introduced | version_val %}
   {% set v_deprec = r.deprecated | version_val if r.deprecated else 0 %}
   {% if not r.deprecated or v_deprec > "1_1_0" | version_val %}
@@ -183,7 +183,7 @@ end;
 // =============================================================================
 // ERRORS STUBS
 // =============================================================================
-{% for r in routines if not r.is_macro and not r.is_inline %}
+{% for r in routines %}
   {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
 {{ r | pas_sig(prefix="ERR_") | replace("; cdecl;", "; cdecl") }}
 begin
@@ -199,7 +199,7 @@ procedure Load(procedure Load(const ADllHandle: TIdLibHandle; LibVersion: TIdC_U
 var
   FuncLoadError: Boolean;
 begin
-{% for r in routines if not r.is_macro and not r.is_inline %}
+{% for r in routines %}
   {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
   {{ r.name }} := LoadLibFunction(ADllHandle, {{ r.name }}_procname);
   FuncLoadError := not assigned({{ r.name }});
@@ -238,7 +238,7 @@ end;
 
 procedure Unload;
 begin
-{% for r in routines if not r.is_macro and not r.is_inline %}
+{% for r in routines %}
   {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
   {{ r.name }} := nil;
   {% endif %}
