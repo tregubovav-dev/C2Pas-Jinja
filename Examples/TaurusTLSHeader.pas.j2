@@ -27,53 +27,63 @@ uses
   {$ENDIF}
   TaurusTLSHeaders_types,
   TaurusTLSHeaders_core;
-
-{# --- FILTER TYPES --- #}
 {% if types %}
+
 type
 // =============================================================================
 // TYPE DECLARATIONS
 // =============================================================================
   {% for t in types %}
-  P{{ t.name }} = ^T{{ t.name }};
-  {% if t.kind == "struct" %}  T{{ t.name }} = record end; {% endif %}
-  {% if t.kind == "alias" %}  T{{ t.name }} =  T{{ t.parent_type.name }}; {% endif +%}
-  {$EXTERNALSYM P{{ t.name }}}
+  {# Construct info objects for P-type (depth 1) and T-type (depth 0) #}
+  {% set p_info = {"name": t.name, "pointer_depth": 1} %}
+  {% set t_info = {"name": t.name, "pointer_depth": 0} %}
+  {{ p_info | pas_type }} = ^{{ t_info | pas_type }};
+  {% if t.kind == "struct" %}
+  {{ t_info | pas_type }} = record end;
+  {% elif t.kind == "alias" %}
+  {{ t_info | pas_type }} = {{ t.parent_type | pas_type }};
+  {% endif %}
+  {$EXTERNALSYM {{ p_info | pas_type }}}
 
   {% endfor %}
 {% endif %}
+{% if enums %}
 
+type
+// =============================================================================
+// ENUM TYPE DECLARATIONS
+// =============================================================================
 {% for e in enums %}
   // Enum: {{ e.name }}
 {% for v in e.values %}
   {{ v.name | pas_name }} = {{ v.value }};
 {% endfor %}
 {% endfor %}
-
+{% endif %}
 {% if callbacks %}
-// =============================================================================
-// CALLBACK TYPE DECLARATIONS
-// =============================================================================
 
 type
-{% for c in callbacks %}
-  {{ c.name }} = {{ c | pas_sig(is_var=True) }};
-{% endfor %}
-{% endif %}
-
-{% if constants %}
 // =============================================================================
 // CALLBACK TYPE DECLARATIONS
 // =============================================================================
+  {% for c in callbacks %}
+  {# Use pas_type at depth 0 to ensure the 'T' prefix is added #}
+  {{ {"name": c.name, "pointer_depth": 0} | pas_type }} = {{ c | pas_sig(is_var=True) }};
+  {% endfor %}
+{% endif %}
+{% if constants %}
 
 const
+// =============================================================================
+// CONSTANTS DECLARATIONS
+// =============================================================================
   {% for c in constants %}
   {{ c.name | pas_name }} = {{ c.value | pas_expression }};
   {% endfor %}
 {% endif %}
+{% if routines %}
 
 {$IFNDEF OPENSSL_STATIC_LINK_MODEL}
-{% if routines %}
 var
 // =============================================================================
 // DYNMAIC BINDING VARIABLES
@@ -86,7 +96,6 @@ var
 
     {% endif %}
   {% endfor %}
-{% endif %}
 {$ENDIF OPENSSL_STATIC_LINK_MODEL}
 
 {$IFDEF OPENSSL_STATIC_LINK_MODEL}
@@ -100,18 +109,21 @@ var
   {% endif %}
 {% endfor %}
 {$ENDIF OPENSSL_STATIC_LINK_MODEL}
+{% endif %}
+{% if static_routines %}
 
 // =============================================================================
 // INLINE OR MACRO ROUTINES
 // =============================================================================
-
-{% for r in static_routines %}
+  {% for r in static_routines %}
 {{ r | pas_sig }};{% if r.deprecated %} deprecated 'In OpenSSL {{ r.deprecated }}';{% endif +%}
   {$IFDEF USE_INLINE}inline; {$ENDIF}
 
-{% endfor %}
+  {% endfor %}
+{% endif %}
 
 implementation
+{% if routines or static_routines %}
 
 uses
   {$IFNDEF OPENSSL_STATIC_LINK_MODEL}
@@ -122,6 +134,8 @@ uses
   TaurusTLSExceptionHandlers,
   TaurusTLSHeaders_crypto,
   TaurusTLSHeaders_objects;
+{% endif %}
+{% if routines %}
 
 {$IFDEF OPENSSL_STATIC_LINK_MODEL}
 // =============================================================================
@@ -158,7 +172,9 @@ const
   {% endif %}
 {% endif %}
 {% endfor %}
+{% endif %}
 
+{% if static_routines %}
 // =============================================================================
 // INLINE/MACRO IMPLEMENTATIONS
 // =============================================================================
@@ -174,6 +190,8 @@ begin
 end;
 
 {% endfor %}
+{% endif %}
+{% if routines or static_routines %} 
 
 // =============================================================================
 // FORWARD and REMOVE COMPATIBILITY IMPLEMENTATIONS
@@ -192,9 +210,11 @@ end;
 
   {% endif %}
 {% endfor %}
+{% endif %}
+{% if routines %} 
 
 {$IFNDEF OPENSSL_STATIC_LINK_MODEL}
-procedure Load(procedure Load(const ADllHandle: TIdLibHandle; LibVersion: TIdC_UINT;
+procedure Load(const ADllHandle: TIdLibHandle; LibVersion: TIdC_UINT;
   const AFailed: TStringList);
 var
   FuncLoadError: Boolean;
@@ -251,4 +271,5 @@ initialization
   Register_SSLLoader(Load,'LibCrypto');
   Register_SSLUnloader(Unload);
 {$ENDIF}
+{% endif %}
 end.
