@@ -42,58 +42,80 @@ class Generator:
     
     def pas_type(self, info):
         """
-        Translates C type info to Pascal types with hierarchical mapping priority.
+        Translates C type info to Pascal types.
+        Priority:
+        1. Exact depth match in typemap.json.
+        2. If name is 'Pointer', return 'Pointer' (Depth 0/1) or 'PPointer' (Depth 2+).
+        3. If depth 0 and unmapped: Prepend 'T'.
+        4. If depth > 0: Hierarchical prefixing (P, PP) with T->P replacement.
         """
-        name = info['name']
+        name = info.get('name', 'int')
         target_depth = info.get('pointer_depth', 0)
         mapping = self.type_map.get(name, name)
 
-        # Normalize mapping to a dict for consistent processing
-        if not isinstance(mapping, dict):
-            # If it's a string, treat it as depth 0
-            mapping = {"0": mapping}
-
-        # 1. Check for Exact Match
-        depth_key = str(target_depth)
-        if depth_key in mapping:
-            return mapping[depth_key]
-
-        # 2. Find the "Upper" (highest defined) depth M where M < target_depth
-        defined_depths = sorted([int(k) for k in mapping.keys()], reverse=True)
-        base_depth = 0
-        for d in defined_depths:
-            if d < target_depth:
-                base_depth = d
-                break
+        # Determine if the type is explicitly mapped in typemap.json
+        is_mapped = name in self.type_map
         
-        base_type = mapping[str(base_depth)]
-        
+        # Resolve base type and check for exact depth match
+        if isinstance(mapping, dict):
+            depth_key = str(target_depth)
+            if depth_key in mapping:
+                return mapping[depth_key] # Return exact match (e.g. PByte)
+            base_type = mapping.get("0", name)
+        else:
+            base_type = mapping
+
+        # 1. Handle Depth 0 (Base Type)
         if target_depth == 0:
+            # EXCEPTION: Never prefix 'Pointer' with 'T'
+            if base_type == 'Pointer':
+                return 'Pointer'
+                
+            if not is_mapped:
+                # Add T prefix to unmapped C types (e.g. asn1_object_st -> Tasn1_object_st)
+                if not (base_type.startswith('T') and len(base_type) > 1 and base_type[1].isupper()):
+                    return "T" + base_type
             return base_type
 
-        # 3. Apply Prefixing Logic
+        # 2. Handle Pointers (Depth > 0)
+        # Find the highest defined depth M < target_depth
+        base_depth = 0
+        if isinstance(mapping, dict):
+            defined_depths = sorted([int(k) for k in mapping.keys()], reverse=True)
+            for d in defined_depths:
+                if d < target_depth:
+                    base_depth = d
+                    base_type = mapping[str(d)]
+                    break
+
+        # EXCEPTION: Handle 'Void' and 'Pointer' identically for pointer logic
+        # void* -> Pointer, void** -> PPointer
+        # Pointer (depth 1) -> Pointer, Pointer* (depth 2) -> PPointer
+        if base_type == 'Void' or base_type == 'Pointer':
+            res = "Pointer"
+            for _ in range(target_depth - 1):
+                res = "P" + res
+            return res
+
+        # If we are starting from depth 0 (unmapped or mapped base)
         if base_depth == 0:
-            # Rule: Replace T with P and add (target_depth - 1) prefixes
-            if base_type == 'Void':
-                # Special case: void* is Pointer, void** is PPointer
-                res = "Pointer"
-                for _ in range(target_depth - 1):
-                    res = "P" + res
-                return res
-            
-            # Standard T -> P replacement logic
-            if base_type.startswith('T') and len(base_type) > 1 and base_type[1].isupper():
+            # Apply T->P replacement logic
+            if not is_mapped and not (base_type.startswith('T') and len(base_type) > 1 and base_type[1].isupper()):
+                # Unmapped: asn1_object_st -> Pasn1_object_st
+                res = "P" + base_type
+            elif base_type.startswith('T') and len(base_type) > 1 and base_type[1].isupper():
+                # Mapped: TIdC_INT -> PIdC_INT
                 res = "P" + base_type[1:]
             else:
+                # Other: Integer -> PInteger
                 res = "P" + base_type
             
-            # Add the remaining P prefixes (pointer_depth - 1)
+            # Add remaining P prefixes for depths > 1
             for _ in range(target_depth - 1):
                 res = "P" + res
             return res
         else:
-            # Rule: Build from an existing pointer type (e.g., depth 1 -> depth 2)
-            # Add P times (target_depth - base_depth)
+            # Build from an existing pointer mapping (e.g. depth 1 PByte -> depth 2 PPByte)
             res = base_type
             for _ in range(target_depth - base_depth):
                 res = "P" + res
