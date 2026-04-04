@@ -34,6 +34,10 @@ type
 // TYPE DECLARATIONS
 // =============================================================================
   {% for t in types %}
+    {% if t.collision_with %} {# Explicitly add a comment with case-sensitive collision  #}
+  // Collision with {{ t.collision_with }}:
+  // {{ t.c_decl | replace('\n', '\n  // ') }}
+  {% else %} {# Otherwise generate type declaration #}
   {# Construct info objects for P-type (depth 1) and T-type (depth 0) #}
   {% set p_info = {"name": t.name, "pointer_depth": 1} %}
   {% set t_info = {"name": t.name, "pointer_depth": 0} %}
@@ -44,6 +48,7 @@ type
   {{ t_info | pas_type }} = {{ t.parent_type | pas_type }};
   {% endif %}
   {$EXTERNALSYM {{ p_info | pas_type }}}
+  {% endif %}
 
   {% endfor %}
 {% endif %}

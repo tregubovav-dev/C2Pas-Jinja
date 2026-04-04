@@ -159,6 +159,34 @@ def match_test(value, pattern):
     if value is None: return False
     return bool(re.search(pattern, str(value)))
 
+def mark_collisions(items, seen_map):
+    """
+    Marks items that would cause case-insensitive name collisions in Delphi.
+    Adds a 'collision_with' key to the item dictionary if a collision is found.
+    """
+    for item in items:
+        name = item.get('name', '')
+        if not name: continue
+        
+        name_lower = name.lower()
+        
+        # Rule 1: Redundant Alias Check (e.g., DH_METHOD vs dh_method)
+        if item.get('kind') == 'alias':
+            parent_name = item.get('parent_type', {}).get('name', '')
+            if name_lower == parent_name.lower():
+                item['collision_with'] = parent_name
+                continue
+        
+        # Rule 2: Global case-insensitive collision check
+        if name_lower in seen_map:
+            # Mark the collision and store the name of the identifier that "won"
+            item['collision_with'] = seen_map[name_lower]
+        else:
+            # First time seeing this name (case-insensitive), register it
+            seen_map[name_lower] = name
+            
+    return items
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TaurusTLS Pascal Generator")
     parser.add_argument("--json", required=True)
@@ -173,21 +201,51 @@ if __name__ == "__main__":
     # Pass the argument to your Generator
     gen = Generator(args.type_map, args.escape_symbol)
 
-    # Define local variables for the status print
-    routines = [r for r in db['routines'] if not r.get('is_macro') and not r.get('is_inline')]
-    static_routines = [r for r in db['routines'] if r.get('is_macro') or r.get('is_inline')]
-    types = db.get('types', [])
-    enums = db.get('enums', [])
-    constants = db.get('constants', [])
-    callbacks = db.get('callbacks', [])
+    # 1. Initialize a shared registry for all identifiers in this unit
+    seen_identifiers = {}
 
+    # 2. Filter collections in priority order to prevent E2004 errors
+    # Priority 1: Types (Fundamental structures)
+    types = mark_collisions(db.get('types', []), seen_identifiers)
+    
+    # Priority 2: Callbacks (Function pointer types)
+    callbacks = mark_collisions(db.get('callbacks', []), seen_identifiers)
+    
+    # Priority 3: Routines (Functions and Macros)
+    # We filter the master list first, then split into dynamic/static
+    all_routines = mark_collisions(db.get('routines', []), seen_identifiers)
+    routines = [r for r in all_routines if not r.get('is_macro') and not r.get('is_inline')]
+    static_routines = [r for r in all_routines if r.get('is_macro') or r.get('is_inline')]
+    
+    # Priority 4: Constants
+    constants = mark_collisions(db.get('constants', []), seen_identifiers)
+    
+    # Priority 5: Enums (The enum type name itself)
+    enums = mark_collisions(db.get('enums', []), seen_identifiers)
+
+    # 3. Setup Jinja2 Environment
     env = Environment(loader=FileSystemLoader("."), trim_blocks=True, lstrip_blocks=True)
-    env.filters.update({'pas_name': gen.pas_name, 'pas_type': gen.pas_type, 'pas_version': gen.pas_version, 'pas_expression': gen.pas_expression, 'pas_sig': gen.pas_sig, 'version_val': version_val_filter})
+    env.filters.update({
+        'pas_name': gen.pas_name, 
+        'pas_type': gen.pas_type, 
+        'pas_version': gen.pas_version, 
+        'pas_expression': gen.pas_expression, 
+        'pas_sig': gen.pas_sig, 
+        'version_val': version_val_filter
+    })
     env.tests.update({'match': match_test})
     
+    # 4. Render Template
     template = env.get_template(args.template)
-    output = template.render(header=db.get('header', 'unknown.h'), routines=routines, static_routines=static_routines, callbacks=callbacks, constants=constants, types=types, enums=enums)
-    
+    output = template.render(
+        header=db.get('header', 'unknown.h'), 
+        routines=routines, 
+        static_routines=static_routines, 
+        callbacks=callbacks, 
+        constants=constants, 
+        types=types, 
+        enums=enums
+    )    
     with open(args.out, "w", encoding="utf-8", newline='\r\n') as f: f.write(output)
 
     print("\n" + "="*50)
