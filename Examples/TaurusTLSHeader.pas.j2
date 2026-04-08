@@ -1,5 +1,5 @@
-{$I ..\TaurusTLSCompilerDefines.inc}
-{$I ..\TaurusTLSLinkDefines.inc}
+{$I TaurusTLSCompilerDefines.inc}
+{$I TaurusTLSLinkDefines.inc}
 {$IFNDEF USE_OPENSSL}
   { error Should not compile if USE_OPENSSL is not defined!!!}
 {$ENDIF}
@@ -27,80 +27,81 @@ uses
   {$ENDIF}
   TaurusTLSHeaders_types,
   TaurusTLSHeaders_core;
-{% if types %}
 
-type
+{% if types %}{# IF AT LEAST A TYPE DEFINITION EXISTS - DO GENERATE DECLARATION(S) #}
 // =============================================================================
 // TYPE DECLARATIONS
 // =============================================================================
-  {% for t in types %}
-    {% if t.collision_with %} {# Explicitly add a comment with case-sensitive collision  #}
+type
+{% for t in types %}
+    {% if t.collision_with %}{# Explicitly add a comment with case-sensitive collision  #}
+  { TODO 1 -cID Collision detected : Review it and update. }
   // Collision with {{ t.collision_with }}:
   // {{ t.c_decl | replace('\n', '\n  // ') }}
-  {% else %} {# Otherwise generate type declaration #}
+{% else %}{# Otherwise generate type declaration #}
   {# Construct info objects for P-type (depth 1) and T-type (depth 0) #}
-  {% set p_info = {"name": t.name, "pointer_depth": 1} %}
-  {% set t_info = {"name": t.name, "pointer_depth": 0} %}
+{% set p_info = {"name": t.name, "pointer_depth": 1} %}
+{% set t_info = {"name": t.name, "pointer_depth": 0} %}
   {{ p_info | pas_type }} = ^{{ t_info | pas_type }};
-  {% if t.kind == "struct" %}
+{% if t.kind == "struct" %}
   {{ t_info | pas_type }} = record end;
-  {% elif t.kind == "alias" %}
+{% elif t.kind == "alias" %}
   {{ t_info | pas_type }} = {{ t.parent_type | pas_type }};
-  {% endif %}
-  {$EXTERNALSYM {{ p_info | pas_type }}}
-  {% endif %}
-
-  {% endfor %}
 {% endif %}
-{% if enums %}
+  {$EXTERNALSYM {{ p_info | pas_type }}}
+{% endif %}
 
-type
+{% endfor %}
+{% endif %}{# END OF TYPE DECLARATIONS SECTION #}
+{% if enums %}{# IF AT LEAST AN ENUM DEFINITION EXISTS - DO GENERATE DECLARATION(S) #}
+
 // =============================================================================
 // ENUM TYPE DECLARATIONS
 // =============================================================================
+type
 {% for e in enums %}
   // Enum: {{ e.name }}
 {% for v in e.values %}
   {{ v.name | pas_name }} = {{ v.value }};
 {% endfor %}
 {% endfor %}
-{% endif %}
-{% if callbacks %}
+{% endif %}{# END OF ENUM DECLARATIONS SECTION #}
+{% if callbacks %}{# IF AT LEAST A CALLBACK DEFINITION EXISTS - DO GENERATE DECLARATION(S) #}
 
-type
 // =============================================================================
 // CALLBACK TYPE DECLARATIONS
 // =============================================================================
-  {% for c in callbacks %}
+type
+{% for c in callbacks %}
   {# Use pas_type at depth 0 to ensure the 'T' prefix is added #}
   {{ {"name": c.name, "pointer_depth": 0} | pas_type }} = {{ c | pas_sig(is_var=True) }};
-  {% endfor %}
-{% endif %}
-{% if constants %}
+{% endfor %}
+{% endif %}{# END OF CALLBACK DECLARATIONS SECTION #}
+{% if constants %}{# IF AT LEAST A CONSTANT DEFINITION EXISTS - DO GENERATE DECLARATION(S) #}
 
-const
 // =============================================================================
 // CONSTANTS DECLARATIONS
 // =============================================================================
-  {% for c in constants %}
+const
+{% for c in constants %}
   {{ c.name | pas_name }} = {{ c.value | pas_expression }};
-  {% endfor %}
-{% endif %}
-{% if routines %}
+{% endfor %}
+{% endif %}{# END OF CONSTANT DECLARATIONS SECTION #}
+{% if routines %}{# IF AT LEAST AN EXPORTED ROUTINE DEFINITION EXISTS - DO GENERATE PROCEDURAL VARIABLE AND EXTERNAL PROCEDURES DECLARATION(S) #}
 
 {$IFNDEF OPENSSL_STATIC_LINK_MODEL}
-var
 // =============================================================================
 // DYNMAIC BINDING VARIABLES
 // =============================================================================
+var
 
-  {% for r in routines if not r.is_macro and not r.is_inline %}
-    {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+{% for r in routines if not r.is_macro and not r.is_inline %}
+{% if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
   {{ r.name }}: {{ r | pas_sig(is_var=True) }} = nil;{% if r.deprecated %} // Deprecated in {{ r.deprecated }}{% endif +%}
   {$EXTERNALSYM {{ r.name }}}
 
-    {% endif %}
-  {% endfor %}
+{% endif %}
+{% endfor %}
 {$ENDIF OPENSSL_STATIC_LINK_MODEL}
 
 {$IFDEF OPENSSL_STATIC_LINK_MODEL}
@@ -109,23 +110,23 @@ var
 // =============================================================================
 
 {% for r in routines %}
-  {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+{% if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
 {{ r | pas_sig }};{% if r.deprecated %} deprecated 'In OpenSSL {{ r.deprecated }}';{% endif +%}
-  {% endif %}
+{% endif %}
 {% endfor %}
 {$ENDIF OPENSSL_STATIC_LINK_MODEL}
-{% endif %}
-{% if static_routines %}
+{% endif %}{# END OF ROUTINES DECLARATIONS SECTION #}
+{% if static_routines %}{# IF AT LEAST AN INLINE OR MACRO DEFINED ROUTINE DEFINITION EXISTS - DO GENERATE DECLARATION(S) #}
 
 // =============================================================================
 // INLINE OR MACRO ROUTINES
 // =============================================================================
-  {% for r in static_routines %}
+{% for r in static_routines %}
 {{ r | pas_sig }};{% if r.deprecated %} deprecated 'In OpenSSL {{ r.deprecated }}';{% endif +%}
   {$IFDEF USE_INLINE}inline; {$ENDIF}
 
-  {% endfor %}
-{% endif %}
+{% endfor %}
+{% endif %}{# END OF INLINE OR MACRO DEFINED ROUTINES DECLARATIONS SECTION #}
 
 implementation
 {% if routines or static_routines %}
@@ -148,33 +149,32 @@ uses
 // =============================================================================
 
 {% for r in routines %}
-  {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+{% if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
 {{ r | pas_sig }} external CLibCrypto name '{{ r.name }}';
-  {% endif %}
+{% endif %}
 {% endfor %}
 {$ENDIF}
 
 // =============================================================================
 // DYNAMIC BINDING ROUTINES CONSTANTS
 // =============================================================================
-
 const
 {% for r in routines %}
-  {% set v_intro = r.introduced | version_val %}
-  {% set v_deprec = r.deprecated | version_val if r.deprecated else 0 %}
-  {% if not r.deprecated or v_deprec > "1_1_0" | version_val %}
+{% set v_intro = r.introduced | version_val %}
+{% set v_deprec = r.deprecated | version_val if r.deprecated else 0 %}
+{% if not r.deprecated or v_deprec > "1_1_0" | version_val %}
 
   {{ r.name }}_procname = '{{ r.name }}';
-  {% if r.introduced %}
-    {% if v_deprec == 0 or v_deprec > v_intro %}
+{% if r.introduced %}
+{% if v_deprec == 0 or v_deprec > v_intro %}
   {{ r.name }}_introduced = {{ r.introduced | pas_version }};
-    {% elif v_deprec < v_intro %}
+{% elif v_deprec < v_intro %}
   {{ r.name }}_introduced = {{ r.introduced | pas_version }}; {$MESSAGE Warn 'Incorrect "Introduced/Deprecated version"'}
-    {% endif %}
-  {% endif %}
-  {% if r.deprecated %}
+{% endif %}
+{% endif %}
+{% if r.deprecated %}
   {{ r.name }}_removed = {{ r.deprecated | pas_version }};
-  {% endif %}
+{% endif %}
 {% endif %}
 {% endfor %}
 {% endif %}
@@ -207,13 +207,13 @@ end;
 // ERRORS STUBS
 // =============================================================================
 {% for r in routines %}
-  {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+{% if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
 {{ r | pas_sig(prefix="ERR_") | replace("; cdecl;", "; cdecl") }}
 begin
   ETaurusTLSAPIFunctionNotPresent.RaiseException({{ r.name }}_procname);
 end;
 
-  {% endif %}
+{% endif %}
 {% endfor %}
 {% endif %}
 {% if routines %} 
@@ -225,7 +225,7 @@ var
   FuncLoadError: Boolean;
 begin
 {% for r in routines %}
-  {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+{% if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
   {{ r.name }} := LoadLibFunction(ADllHandle, {{ r.name }}_procname);
   FuncLoadError := not assigned({{ r.name }});
   if FuncLoadError then
@@ -256,7 +256,7 @@ begin
       AFailed.Add('{{ r.name }}');
     {$ifend}
   end;
-  {% endif %}
+{% endif %}
   
 {% endfor %}
 end;
@@ -264,9 +264,9 @@ end;
 procedure Unload;
 begin
 {% for r in routines %}
-  {%- if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+{% if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
   {{ r.name }} := nil;
-  {% endif %}
+{% endif %}
 {% endfor %}
 end;
 {$ENDIF}
