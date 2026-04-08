@@ -224,7 +224,11 @@ if __name__ == "__main__":
     enums = mark_collisions(db.get('enums', []), seen_identifiers)
 
     # 3. Setup Jinja2 Environment
-    env = Environment(loader=FileSystemLoader("."), trim_blocks=True, lstrip_blocks=True)
+    # Use the template's own directory as the search root so that
+    # both absolute and relative paths work correctly.
+    template_dir = os.path.dirname(os.path.abspath(args.template))
+    template_name = os.path.basename(args.template)
+    env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
     env.filters.update({
         'pas_name': gen.pas_name, 
         'pas_type': gen.pas_type, 
@@ -236,7 +240,7 @@ if __name__ == "__main__":
     env.tests.update({'match': match_test})
     
     # 4. Render Template
-    template = env.get_template(args.template)
+    template = env.get_template(template_name)
     output = template.render(
         header=db.get('header', 'unknown.h'), 
         routines=routines, 

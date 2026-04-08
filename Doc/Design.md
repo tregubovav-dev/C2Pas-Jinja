@@ -44,6 +44,14 @@ The tool uses `libclang` to parse the header. Unlike regex-based tools, this und
     -   **For Type Definitions**: The tool resolves the alias to its underlying structure to allow the generator to decide between a `record` or an `alias`.
 -   **Array Decay**: Automatically identifies `Type[]` parameters as `pointer_depth: 1` using AST element unwrapping.
 
+### Conditional Output & CI Integration
+-   **Skip Empty Output**: By default, `C2Meta.py` will **not** create a JSON file if no symbols were extracted from the header. This prevents the build from being polluted with empty files.
+-   **`--force` Flag**: Add `--force` to override the skip behavior and always write the JSON file.
+-   **Exit Codes**:
+    -   `0`: Extraction succeeded and JSON file was written.
+    -   `254`: Extraction completed but no symbols were found; JSON file was **skipped**.
+    -   Other non-zero: A fatal error occurred.
+
 ---
 
 ## 3. Stage 2: The Generator (`Meta2Pas.py`)
@@ -73,6 +81,9 @@ Delphi is case-insensitive, while C is case-sensitive. To prevent `E2004: Identi
 -   **Tests**: 
     -   `match`: Enables regex-based filtering of identifiers directly within the template.
 
+### Template Path Resolution
+The generator uses the template file's own directory as the Jinja2 search root. This means the `--template` argument accepts both **absolute** and **relative** paths transparently, making it suitable for use from batch scripts in any working directory.
+
 ### File Output
 -   **CRLF Enforcement**: The generator always enforces Windows-style line endings (`\r\n`) regardless of the host OS.
 
@@ -87,7 +98,7 @@ Delphi is case-insensitive, while C is case-sensitive. To prevent `E2004: Identi
                    |
         [ Stage 1: C2Meta.py ] <--- (Clang AST)
                    |
-        [ Language-Agnostic JSON ]
+        [ Language-Agnostic JSON ]  --- (exit 254: skipped if empty)
                    |
         +----------+-------------+
         |                        |
@@ -100,5 +111,19 @@ Delphi is case-insensitive, while C is case-sensitive. To prevent `E2004: Identi
         [ Final Pascal Unit (.pas) ]
 ```
 
-## 5. Design Philosophy: "Transparent & Defensive"
+## 5. Batch Processing Scripts (`Examples/`)
+
+For processing an entire OpenSSL header tree, two helper scripts are provided in the `Examples/` directory. They implement the recommended two-phase workflow.
+
+### `ExtractAll.sh` — Phase 1: Build the Metadata Database
+Iterates over all public headers in `include/openssl/`, runs `C2Meta.py` on each, and populates a local `db/` directory with JSON files. It correctly interprets exit code `254` to report skipped headers (no symbols) separately from errors.
+
+### `GenerateAll.sh` — Phase 2: Generate Pascal Units
+Iterates over all JSON files in the `db/` directory and runs `Meta2Pas.py` to produce `.pas` units in a local `units/` directory. It contains the template selection logic to route specific headers (e.g., `obj_mac`) to specialized templates.
+
+> **Key benefit of the two-phase approach**: The database only needs to be built once (in a Linux/WSL environment with `clang`). Template iteration and code generation can then be performed independently on any machine.
+
+---
+
+## 6. Design Philosophy: "Transparent & Defensive"
 The toolchain follows a "Defensive Generation" philosophy. Templates check if a collection is empty before printing section headers (`type`, `var`, `const`). Combined with "Transparent Collision Management," this ensures that the resulting Pascal unit is always syntactically valid, while providing clear comments for any C identifiers that were suppressed due to Delphi's language constraints.

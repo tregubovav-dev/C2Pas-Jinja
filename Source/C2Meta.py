@@ -226,26 +226,34 @@ if __name__ == "__main__":
     parser.add_argument("--header", required=True); parser.add_argument("--search", action='append', required=True)
     parser.add_argument("--num", action='append', required=True); parser.add_argument("--syms", action='append', required=True)
     parser.add_argument("--out", required=True)
+    parser.add_argument("--force", action='store_true', help="Force creation of JSON output even if no symbols were extracted")
     args = parser.parse_args()
 
     exports = parse_exports(args.num, args.syms)
     extractor = OpenSSLExtractor(exports)
     db = extractor.build(args.header, args.search)
-    with open(args.out, "w", encoding="utf-8") as f:
-        json.dump(db, f, indent=2)
-    
-        print("\n" + "="*50)
-    print(f"C2Meta EXTRACTION COMPLETE")
-    print("="*50)
-    print(f"Source Header: {db['header']}")
-    print(f"Output JSON:   {args.out}")
-    print("-" * 50)
     
     # Calculate specific counts
     macro_routines = sum(1 for r in db['routines'] if r.get('is_macro'))
     func_routines = len(db['routines']) - macro_routines
     promoted_cbs = sum(1 for c in db['callbacks'] if c.get('is_promoted'))
     
+    has_data = any([db['types'], db['enums'], db['callbacks'], db['constants'], db['routines']])
+    
+    print("\n" + "="*50)
+    print(f"C2Meta EXTRACTION COMPLETE")
+    print("="*50)
+    print(f"Source Header: {db['header']}")
+    
+    if not has_data and not args.force:
+        print(f"Output JSON:   SKIPPED (No data extracted, use --force to override)")
+        sys.exit(254)
+    else:
+        with open(args.out, "w", encoding="utf-8") as f:
+            json.dump(db, f, indent=2)
+        print(f"Output JSON:   {args.out}")
+        
+    print("-" * 50)
     print(f"Routines:      {len(db['routines']):>4} ({func_routines} functions, {macro_routines} macro aliases)")
     print(f"Types:         {len(db['types']):>4}")
     print(f"Enums:         {len(db['enums']):>4}")
