@@ -42,58 +42,80 @@ class Generator:
     
     def pas_type(self, info):
         """
-        Translates C type info to Pascal types with hierarchical mapping priority.
+        Translates C type info to Pascal types.
+        Priority:
+        1. Exact depth match in typemap.json.
+        2. If name is 'Pointer', return 'Pointer' (Depth 0/1) or 'PPointer' (Depth 2+).
+        3. If depth 0 and unmapped: Prepend 'T'.
+        4. If depth > 0: Hierarchical prefixing (P, PP) with T->P replacement.
         """
-        name = info['name']
+        name = info.get('name', 'int')
         target_depth = info.get('pointer_depth', 0)
         mapping = self.type_map.get(name, name)
 
-        # Normalize mapping to a dict for consistent processing
-        if not isinstance(mapping, dict):
-            # If it's a string, treat it as depth 0
-            mapping = {"0": mapping}
-
-        # 1. Check for Exact Match
-        depth_key = str(target_depth)
-        if depth_key in mapping:
-            return mapping[depth_key]
-
-        # 2. Find the "Upper" (highest defined) depth M where M < target_depth
-        defined_depths = sorted([int(k) for k in mapping.keys()], reverse=True)
-        base_depth = 0
-        for d in defined_depths:
-            if d < target_depth:
-                base_depth = d
-                break
+        # Determine if the type is explicitly mapped in typemap.json
+        is_mapped = name in self.type_map
         
-        base_type = mapping[str(base_depth)]
-        
+        # Resolve base type and check for exact depth match
+        if isinstance(mapping, dict):
+            depth_key = str(target_depth)
+            if depth_key in mapping:
+                return mapping[depth_key] # Return exact match (e.g. PByte)
+            base_type = mapping.get("0", name)
+        else:
+            base_type = mapping
+
+        # 1. Handle Depth 0 (Base Type)
         if target_depth == 0:
+            # EXCEPTION: Never prefix 'Pointer' with 'T'
+            if base_type == 'Pointer':
+                return 'Pointer'
+                
+            if not is_mapped:
+                # Add T prefix to unmapped C types (e.g. asn1_object_st -> Tasn1_object_st)
+                if not (base_type.startswith('T') and len(base_type) > 1 and base_type[1].isupper()):
+                    return "T" + base_type
             return base_type
 
-        # 3. Apply Prefixing Logic
+        # 2. Handle Pointers (Depth > 0)
+        # Find the highest defined depth M < target_depth
+        base_depth = 0
+        if isinstance(mapping, dict):
+            defined_depths = sorted([int(k) for k in mapping.keys()], reverse=True)
+            for d in defined_depths:
+                if d < target_depth:
+                    base_depth = d
+                    base_type = mapping[str(d)]
+                    break
+
+        # EXCEPTION: Handle 'Void' and 'Pointer' identically for pointer logic
+        # void* -> Pointer, void** -> PPointer
+        # Pointer (depth 1) -> Pointer, Pointer* (depth 2) -> PPointer
+        if base_type == 'Void' or base_type == 'Pointer':
+            res = "Pointer"
+            for _ in range(target_depth - 1):
+                res = "P" + res
+            return res
+
+        # If we are starting from depth 0 (unmapped or mapped base)
         if base_depth == 0:
-            # Rule: Replace T with P and add (target_depth - 1) prefixes
-            if base_type == 'Void':
-                # Special case: void* is Pointer, void** is PPointer
-                res = "Pointer"
-                for _ in range(target_depth - 1):
-                    res = "P" + res
-                return res
-            
-            # Standard T -> P replacement logic
-            if base_type.startswith('T') and len(base_type) > 1 and base_type[1].isupper():
+            # Apply T->P replacement logic
+            if not is_mapped and not (base_type.startswith('T') and len(base_type) > 1 and base_type[1].isupper()):
+                # Unmapped: asn1_object_st -> Pasn1_object_st
+                res = "P" + base_type
+            elif base_type.startswith('T') and len(base_type) > 1 and base_type[1].isupper():
+                # Mapped: TIdC_INT -> PIdC_INT
                 res = "P" + base_type[1:]
             else:
+                # Other: Integer -> PInteger
                 res = "P" + base_type
             
-            # Add the remaining P prefixes (pointer_depth - 1)
+            # Add remaining P prefixes for depths > 1
             for _ in range(target_depth - 1):
                 res = "P" + res
             return res
         else:
-            # Rule: Build from an existing pointer type (e.g., depth 1 -> depth 2)
-            # Add P times (target_depth - base_depth)
+            # Build from an existing pointer mapping (e.g. depth 1 PByte -> depth 2 PPByte)
             res = base_type
             for _ in range(target_depth - base_depth):
                 res = "P" + res
@@ -137,6 +159,34 @@ def match_test(value, pattern):
     if value is None: return False
     return bool(re.search(pattern, str(value)))
 
+def mark_collisions(items, seen_map):
+    """
+    Marks items that would cause case-insensitive name collisions in Delphi.
+    Adds a 'collision_with' key to the item dictionary if a collision is found.
+    """
+    for item in items:
+        name = item.get('name', '')
+        if not name: continue
+        
+        name_lower = name.lower()
+        
+        # Rule 1: Redundant Alias Check (e.g., DH_METHOD vs dh_method)
+        if item.get('kind') == 'alias':
+            parent_name = item.get('parent_type', {}).get('name', '')
+            if parent_name and name_lower == parent_name.lower() and name != parent_name:
+                item['collision_with'] = parent_name
+                continue
+        
+        # Rule 2: Global case-insensitive collision check
+        if name_lower in seen_map:
+            # Mark the collision and store the name of the identifier that "won"
+            item['collision_with'] = seen_map[name_lower]
+        else:
+            # First time seeing this name (case-insensitive), register it
+            seen_map[name_lower] = name
+            
+    return items
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="TaurusTLS Pascal Generator")
     parser.add_argument("--json", required=True)
@@ -151,21 +201,59 @@ if __name__ == "__main__":
     # Pass the argument to your Generator
     gen = Generator(args.type_map, args.escape_symbol)
 
-    # Define local variables for the status print
-    routines = [r for r in db['routines'] if not r.get('is_macro') and not r.get('is_inline')]
-    static_routines = [r for r in db['routines'] if r.get('is_macro') or r.get('is_inline')]
-    types = db.get('types', [])
-    enums = db.get('enums', [])
-    constants = db.get('constants', [])
-    callbacks = db.get('callbacks', [])
+    # 1. Initialize a shared registry for all identifiers in this unit
+    seen_identifiers = {}
 
-    env = Environment(loader=FileSystemLoader("."), trim_blocks=True, lstrip_blocks=True)
-    env.filters.update({'pas_name': gen.pas_name, 'pas_type': gen.pas_type, 'pas_version': gen.pas_version, 'pas_expression': gen.pas_expression, 'pas_sig': gen.pas_sig, 'version_val': version_val_filter})
+    # 2. Filter collections in priority order to prevent E2004 errors
+    # Priority 1: Types (Fundamental structures)
+    types = mark_collisions(db.get('types', []), seen_identifiers)
+    
+    # Priority 2: Callbacks (Function pointer types)
+    callbacks = mark_collisions(db.get('callbacks', []), seen_identifiers)
+    
+    # Priority 3: Routines (Functions and Macros)
+    # We filter the master list first, then split into dynamic/static
+    all_routines = mark_collisions(db.get('routines', []), seen_identifiers)
+    routines = [r for r in all_routines if not r.get('is_macro') and not r.get('is_inline')]
+    static_routines = [r for r in all_routines if r.get('is_macro') or r.get('is_inline')]
+    
+    # Priority 4: Constants
+    constants = mark_collisions(db.get('constants', []), seen_identifiers)
+    
+    # Priority 5: Enums (The enum type name itself)
+    enums = mark_collisions(db.get('enums', []), seen_identifiers)
+
+    # Priority 6: OpenSSL Stacks
+    ossl_stacks = db.get('ossl_stacks', [])
+
+    # 3. Setup Jinja2 Environment
+    # Use the template's own directory as the search root so that
+    # both absolute and relative paths work correctly.
+    template_dir = os.path.dirname(os.path.abspath(args.template))
+    template_name = os.path.basename(args.template)
+    env = Environment(loader=FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
+    env.filters.update({
+        'pas_name': gen.pas_name, 
+        'pas_type': gen.pas_type, 
+        'pas_version': gen.pas_version, 
+        'pas_expression': gen.pas_expression, 
+        'pas_sig': gen.pas_sig, 
+        'version_val': version_val_filter
+    })
     env.tests.update({'match': match_test})
     
-    template = env.get_template(args.template)
-    output = template.render(header=db.get('header', 'unknown.h'), routines=routines, static_routines=static_routines, callbacks=callbacks, constants=constants, types=types, enums=enums)
-    
+    # 4. Render Template
+    template = env.get_template(template_name)
+    output = template.render(
+        header=db.get('header', 'unknown.h'), 
+        routines=routines, 
+        static_routines=static_routines, 
+        callbacks=callbacks, 
+        constants=constants, 
+        types=types, 
+        enums=enums,
+        ossl_stacks=ossl_stacks
+    )    
     with open(args.out, "w", encoding="utf-8", newline='\r\n') as f: f.write(output)
 
     print("\n" + "="*50)
@@ -180,4 +268,6 @@ if __name__ == "__main__":
     print(f"  Enums:       {len(enums):>4}")
     print(f"  Constants:   {len(constants):>4}")
     print(f"  Callbacks:   {len(callbacks):>4}")
+    if 'ossl_stacks' in db:
+        print(f"  OSSL Stacks: {len(ossl_stacks):>4}")
     print("="*50 + "\n")
