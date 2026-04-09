@@ -20,8 +20,6 @@ interface
 uses
   IdCTypes,
   IdGlobal,
-  TaurusTLSHeaders_bio,
-  TaurusTLSHeaders_obj_mac,
   {$IFDEF OPENSSL_STATIC_LINK_MODEL}
   TaurusTLSConsts,
   {$ENDIF}
@@ -59,11 +57,18 @@ type
 // ENUM TYPE DECLARATIONS
 // =============================================================================
 type
-{% for e in enums %}
-  // Enum: {{ e.name }}
-{% for v in e.values %}
-  {{ v.name | pas_name }} = {{ v.value }};
+{% for enum_obj in enums %}
+{% if enum_obj.collision_with %}
+  // Collision with {{ enum_obj.collision_with }}: {{ enum_obj.name }}
+{% else %}
+  // Enum: {{ enum_obj.name }}
+  {{ {"name": enum_obj.name, "pointer_depth": 0} | pas_type }} = (
+{% for member in enum_obj['entries'] %}
+    {{ member.name | pas_name }}{% if member.value is not none %} = {{ member.value }}{% endif %}{{ "," if not loop.last }}
 {% endfor %}
+  );
+
+{% endif %}
 {% endfor %}
 {% endif %}{# END OF ENUM DECLARATIONS SECTION #}
 {% if callbacks %}{# IF AT LEAST A CALLBACK DEFINITION EXISTS - DO GENERATE DECLARATION(S) #}
@@ -90,6 +95,7 @@ const
 {% if routines %}{# IF AT LEAST AN EXPORTED ROUTINE DEFINITION EXISTS - DO GENERATE PROCEDURAL VARIABLE AND EXTERNAL PROCEDURES DECLARATION(S) #}
 
 {$IFNDEF OPENSSL_STATIC_LINK_MODEL}
+
 // =============================================================================
 // DYNMAIC BINDING VARIABLES
 // =============================================================================
@@ -105,6 +111,7 @@ var
 {$ENDIF OPENSSL_STATIC_LINK_MODEL}
 
 {$IFDEF OPENSSL_STATIC_LINK_MODEL}
+
 // =============================================================================
 // STATIC BINDING ROUTINES
 // =============================================================================
@@ -121,12 +128,32 @@ var
 // =============================================================================
 // INLINE OR MACRO ROUTINES
 // =============================================================================
+
 {% for r in static_routines %}
 {{ r | pas_sig }};{% if r.deprecated %} deprecated 'In OpenSSL {{ r.deprecated }}';{% endif +%}
   {$IFDEF USE_INLINE}inline; {$ENDIF}
 
 {% endfor %}
 {% endif %}{# END OF INLINE OR MACRO DEFINED ROUTINES DECLARATIONS SECTION #}
+{% if ossl_stacks %}{# IF AT LEAST A STACK DEFINITION EXISTS #}
+
+// =============================================================================
+// OPENSSL STACK DEFINITIONS
+// =============================================================================
+type
+{% for s in ossl_stacks %}
+  { TODO 1 -copenssl stack {{ s.name }} definitions : To replace placeholder body with the actual type and callbacks. }
+  PSTACK_OF_{{ s.name }} = Pointer;
+  {$EXTERNALSYM PSTACK_OF_{{ s.name }}}
+
+  { Original Stack Macros for {{ s.name }}:
+  {% for d in s.decls %}
+    {{ d | replace('\n', '\n    ') }}
+  {% endfor %}
+  }
+
+{% endfor %}
+{% endif %}{# END OF OSSL_STACKS DEFINED ROUTINES DECLARATIONS SECTION #}
 
 implementation
 {% if routines or static_routines %}
@@ -137,13 +164,12 @@ uses
   TaurusTLSLoader,
   {$ENDIF}
   TaurusTLS_ResourceStrings,
-  TaurusTLSExceptionHandlers,
-  TaurusTLSHeaders_crypto,
-  TaurusTLSHeaders_objects;
+  TaurusTLSExceptionHandlers;
 {% endif %}
 {% if routines %}
 
 {$IFDEF OPENSSL_STATIC_LINK_MODEL}
+
 // =============================================================================
 // STATIC BINDING ROUTINES IMPORTS
 // =============================================================================
@@ -158,6 +184,7 @@ uses
 // =============================================================================
 // DYNAMIC BINDING ROUTINES CONSTANTS
 // =============================================================================
+
 const
 {% for r in routines %}
 {% set v_intro = r.introduced | version_val %}
@@ -188,10 +215,10 @@ const
 {{ r | pas_sig | replace("; cdecl;", "; cdecl") }}
 begin
  { TODO 1 -copenssl inline routines : To replace placeholder body with the actual code. }
+  // This is an inline routine or macro. Manual implementation required if needed.
   { Original C Declaration:
     {{ r.c_decl }}
   }
-  // This is an inline routine or macro. Manual implementation required if needed.
 end;
 
 {% endfor %}
@@ -201,11 +228,13 @@ end;
 // =============================================================================
 // FORWARD and REMOVE COMPATIBILITY IMPLEMENTATIONS
 // =============================================================================
+
 { TODO 1 -cinline forrward and remove compatibility routines : To add required procedures/functions. }
 
 // =============================================================================
 // ERRORS STUBS
 // =============================================================================
+
 {% for r in routines %}
 {% if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
 {{ r | pas_sig(prefix="ERR_") | replace("; cdecl;", "; cdecl") }}

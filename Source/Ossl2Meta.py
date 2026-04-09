@@ -15,10 +15,12 @@ import re
 import argparse
 import clang.cindex
 
-class CExtractor:
-    def __init__(self):
-        self.db = {            "header": "", "types": [], "enums": [], 
-            "callbacks": [], "constants": [], "routines": []
+class OpenSSLExtractor:
+    def __init__(self, num_symbols):
+        self.num_symbols = num_symbols
+        self.db = {
+            "header": "", "types": [], "enums": [], 
+            "callbacks": [], "constants": [], "routines": [], "ossl_stacks": []
         }
         self.processed_symbols = set()
         self.signature_registry = {} 
@@ -141,54 +143,116 @@ class CExtractor:
                     "name": c['name'], "return_type": target["return_type"],
                     "params": target["params"], "is_macro": True, "is_inline": True,
                     "is_alias": True, "alias_target": target_name,
+                    "introduced": target.get("introduced"), "deprecated": target.get("deprecated"),
                     "c_decl": c.get("c_decl")
                 })
             else:
                 new_constants.append(c)
         self.db["constants"] = new_constants
 
+    def post_process_stacks(self):
+        """Removes internal stack types and callbacks that are now covered by ossl_stacks."""
+        stack_names = {s['name'] for s in self.db["ossl_stacks"]}
+        if not stack_names: return
+
+        def is_stack_related(name):
+            if not name: return False
+            for sn in stack_names:
+                # Patterns: sk_TYPE_..., ossl_check_TYPE_..., stack_st_TYPE
+                if name.startswith(f"sk_{sn}_") or \
+                   name.startswith(f"ossl_check_{sn}_") or \
+                   name == f"stack_st_{sn}":
+                    return True
+            return False
+
+        # Filter all primary collections to remove redundant stack boilerplate
+        self.db["callbacks"] = [x for x in self.db["callbacks"] if not is_stack_related(x['name'])]
+        self.db["types"] = [x for x in self.db["types"] if not is_stack_related(x['name'])]
+        self.db["routines"] = [x for x in self.db["routines"] if not is_stack_related(x['name'])]
+        self.db["constants"] = [x for x in self.db["constants"] if not is_stack_related(x['name'])]
+
     def build(self, header_path, include_paths):
         index = clang.cindex.Index.create()
         self.db["header"] = os.path.basename(header_path)
         target_abs = os.path.realpath(header_path)
-        tu = index.parse(header_path, args=[f'-I{p}' for p in include_paths], 
+        tu = index.parse(header_path, args=[f'-I{p}' for p in include_paths] + ['-DOPENSSL_SUPPRESS_DEPRECATED'], 
                          options=clang.cindex.TranslationUnit.PARSE_DETAILED_PROCESSING_RECORD)
         
+        stack_macros = ('SKM_DEFINE_STACK_OF_INTERNAL', 'SKM_DEFINE_STACK_OF', 
+                        'DEFINE_STACK_OF', 'DEFINE_STACK_OF_CONST', 'DEFINE_SPECIAL_STACK_OF')
+
         for node in tu.cursor.walk_preorder():
             if not node.location.file: continue
             if os.path.realpath(node.location.file.name) != target_abs: continue
 
-            if node.kind == clang.cindex.CursorKind.FUNCTION_DECL and node.spelling and node.spelling not in self.processed_symbols:
+            if node.kind == clang.cindex.CursorKind.MACRO_INSTANTIATION and node.spelling in stack_macros:
+                snippet = self.get_source_snippet(node)
+                # Extract the first argument as the stack type name (e.g. X509, CONF_VALUE)
+                m = re.search(fr'{node.spelling}\s*\(\s*([^,\s\)]+)', snippet)
+                if m:
+                    stack_name = m.group(1)
+                    target_stack = None
+                    for s in self.db["ossl_stacks"]:
+                        if s["name"] == stack_name:
+                            target_stack = s
+                            break
+                    if not target_stack:
+                        target_stack = {"name": stack_name, "decls": []}
+                        self.db["ossl_stacks"].append(target_stack)
+                    target_stack["decls"].append(snippet)
+
+            elif node.kind == clang.cindex.CursorKind.FUNCTION_DECL and node.spelling in self.num_symbols:
                 self.current_parent = node.spelling
                 params = [{"name": arg.spelling or f"arg{i+1}", "type": self.parse_type_info(arg.type, arg.spelling, arg)} 
                           for i, arg in enumerate(node.get_arguments())]
+                meta = self.num_symbols[node.spelling]
                 self.db["routines"].append({
                     "name": node.spelling, "return_type": self.parse_type_info(node.result_type),
-                    "params": params,
+                    "params": params, "introduced": meta['introduced'], "deprecated": meta['deprecated'],
                     "is_macro": False, "c_decl": self.get_source_snippet(node)
                 })
                 self.processed_symbols.add(node.spelling)
 
-            elif node.kind == clang.cindex.CursorKind.MACRO_DEFINITION and node.spelling and node.spelling not in self.processed_symbols:
+            elif node.kind == clang.cindex.CursorKind.MACRO_DEFINITION:
                 name = node.spelling
-                tokens = list(node.get_tokens())
-                if self.is_func_like_macro(node):
-                    macro_params = []
-                    i = 2
-                    while i < len(tokens) and tokens[i].spelling != ')':
-                        if tokens[i].spelling != ',': macro_params.append(tokens[i].spelling)
-                        i += 1
-                    self.db["routines"].append({
-                        "name": name, "return_type": {"name": "int", "pointer_depth": 0, "is_const": False, "is_guess": True},
-                        "params": [{"name": p, "type": {"name": "Pointer", "pointer_depth": 0, "is_const": False, "is_guess": True}} for p in macro_params],
-                        "is_macro": True, "is_inline": True,
-                        "c_decl": self.get_source_snippet(node)
-                    })
-                elif len(tokens) > 1:
-                    body = "".join([t.spelling for t in tokens[1:]])
-                    if body.strip():
-                        self.db["constants"].append({"name": name, "value": body.strip(), "c_decl": self.get_source_snippet(node)})
-                self.processed_symbols.add(name)
+
+                # Special handling for OSSL Stack macros and checks (sk_XXX_..., ossl_check_XXX_...)
+                if name.startswith('sk_') or name.startswith('ossl_check_'):
+                    for stack in self.db["ossl_stacks"]:
+                        sn = stack['name']
+                        if name.startswith(f"sk_{sn}_") or name.startswith(f"ossl_check_{sn}_"):
+                            stack["decls"].append(self.get_source_snippet(node))
+                            self.processed_symbols.add(name)
+                            break
+
+                if name in self.num_symbols and name not in self.processed_symbols:
+                    if self.is_func_like_macro(node):
+                        tokens = list(node.get_tokens())
+                        macro_params = []
+                        i = 2
+                        while i < len(tokens) and tokens[i].spelling != ')':
+                            if tokens[i].spelling != ',': macro_params.append(tokens[i].spelling)
+                            i += 1
+                        meta = self.num_symbols[name]
+                        self.db["routines"].append({
+                            "name": name, "return_type": {"name": "int", "pointer_depth": 0, "is_const": False, "is_guess": True},
+                            "params": [{"name": p, "type": {"name": "Pointer", "pointer_depth": 0, "is_const": False, "is_guess": True}} for p in macro_params],
+                            "is_macro": True, "is_inline": True, "introduced": meta["introduced"], "deprecated": meta["deprecated"],
+                            "c_decl": self.get_source_snippet(node)
+                        })
+                        self.processed_symbols.add(name)
+                    else:
+                        # Not function-like: Treat as constant even if in num_symbols
+                        # It will be caught by the general macro-constant logic below
+                        pass
+
+                if name not in self.processed_symbols:
+                    tokens = list(node.get_tokens())
+                    if len(tokens) > 1 and not self.is_func_like_macro(node):
+                        body = "".join([t.spelling for t in tokens[1:]])
+                        if body.strip():
+                            self.db["constants"].append({"name": name, "value": body.strip(), "c_decl": self.get_source_snippet(node)})
+                    self.processed_symbols.add(name)
 
             elif node.kind == clang.cindex.CursorKind.TYPEDEF_DECL:
                 self.current_parent = node.spelling
@@ -207,10 +271,11 @@ class CExtractor:
                 else:
                     type_info = self.parse_type_info(node.type, cursor=node)
                     if not type_info.get('is_callback') and node.spelling not in self.processed_symbols:
-                        # Skip self-referencing aliases
+                        # Skip self-referencing aliases (e.g. typedef DH_METHOD dh_method -> already named the same)
                         if node.spelling != type_info.get('name'):
                             self.db["types"].append({"name": node.spelling, "kind": "alias", "parent_type": type_info, "c_decl": self.get_source_snippet(node)})
                         self.processed_symbols.add(node.spelling)
+
 
             elif node.kind in (clang.cindex.CursorKind.STRUCT_DECL, clang.cindex.CursorKind.UNION_DECL):
                 if node.spelling and node.spelling not in self.processed_symbols:
@@ -219,17 +284,101 @@ class CExtractor:
                     self.processed_symbols.add(node.spelling)
 
         self.post_process_aliases()
+        self.post_process_stacks()
         return self.db
+
+def parse_exports(num_files, sym_files, legacy_num_files=[]):
+    history = {}
+    # 1. Build history from legacy versions (e.g. 1.1.1)
+    for f in legacy_num_files:
+        if not os.path.exists(f): continue
+        with open(f, 'r') as src:
+            for line in src:
+                p = line.split()
+                if len(p) >= 4 and 'FUNCTION' in p[3]:
+                    history[p[0]] = p[2].replace('.','_')
+
+    symbols = {}
+    # 2. Parse main .num files
+    for f in num_files:
+        if not os.path.exists(f): continue
+        with open(f, 'r') as src:
+            for line in src:
+                p = line.split()
+                if len(p) >= 4 and 'FUNCTION' in p[3]:
+                    name = p[0]
+                    intro_ver = p[2].replace('.','_')
+                    dep = re.search(r'DEPRECATEDIN_(\d+)_(\d+)', p[3])
+                    dep_ver = f"{dep.group(1)}_{dep.group(2)}_0" if dep else None
+                    
+                    # ENRICHMENT: If version is generic 3.0.0, check history
+                    if intro_ver == "3_0_0" and name in history:
+                        intro_ver = history[name]
+                        
+                    symbols[name] = {'introduced': intro_ver, 'deprecated': dep_ver}
+
+    # 3. Parse .syms files (for macro aliases)
+    for f in sym_files:
+        if not os.path.exists(f): continue
+        with open(f, 'r') as src:
+            for line in src:
+                p = line.split()
+                if p and p[0] not in symbols:
+                    name = p[0]
+                    intro_ver = '3_0_0'
+                    dep_ver = None
+                    if 'deprecated' in p:
+                        idx = p.index('deprecated')
+                        if len(p) > idx + 1: dep_ver = p[idx+1].replace('.','_')
+                    
+                    # ENRICHMENT: Even for macros, check legacy history
+                    if name in history:
+                        intro_ver = history[name]
+                        
+                    symbols[name] = {'introduced': intro_ver, 'deprecated': dep_ver}
+    return symbols
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--header", required=True); parser.add_argument("--search", action='append', required=True)
-    parser.add_argument("--out", required=True)
+    parser.add_argument("--root", required=True, help="Root of OpenSSL source tree (e.g. 3.x)")
+    parser.add_argument("--header", required=True, help="Header filename only (e.g. ssl.h, evp.h)")
+    parser.add_argument("--legacy", help="Directory containing legacy .num files (e.g. 1.1.1 versions of libcrypto.num/libssl.num)")
+    parser.add_argument("--out", required=True, help="Output JSON path")
+    parser.add_argument("--search", action='append', help="Optional additional include search paths")
     parser.add_argument("--force", action='store_true', help="Force creation of JSON output even if no symbols were extracted")
     args = parser.parse_args()
 
-    extractor = CExtractor()
-    db = extractor.build(args.header, args.search)
+    # 1. Resolve primary paths
+    header_path = os.path.join(args.root, 'include', 'openssl', args.header)
+    include_paths = [os.path.join(args.root, 'include')]
+    if args.search: include_paths.extend(args.search)
+
+    # 2. Resolve main symbol files
+    num_files = [
+        os.path.join(args.root, 'util', 'libcrypto.num'),
+        os.path.join(args.root, 'util', 'libssl.num')
+    ]
+    sym_files = []
+    other_syms = os.path.join(args.root, 'util', 'other.syms')
+    if os.path.exists(other_syms): sym_files.append(other_syms)
+
+    # 3. Resolve legacy symbol files
+    legacy_nums = []
+    if args.legacy:
+        for n in ['libcrypto.num', 'libssl.num']:
+            lpath = os.path.join(args.legacy, n)
+            if os.path.exists(lpath): legacy_nums.append(lpath)
+        # Check for optional legacy syms
+        lsyms = os.path.join(args.legacy, 'other.syms')
+        if os.path.exists(lsyms): sym_files.append(lsyms) # Add to sym_files for enrichment
+
+    if not os.path.exists(header_path):
+        print(f"Error: Header not found at {header_path}")
+        sys.exit(1)
+
+    exports = parse_exports(num_files, sym_files, legacy_nums)
+    extractor = OpenSSLExtractor(exports)
+    db = extractor.build(header_path, include_paths)
     
     # Calculate specific counts
     macro_routines = sum(1 for r in db['routines'] if r.get('is_macro'))
@@ -239,7 +388,7 @@ if __name__ == "__main__":
     has_data = any([db['types'], db['enums'], db['callbacks'], db['constants'], db['routines']])
     
     print("\n" + "="*50)
-    print(f"C2Meta EXTRACTION COMPLETE")
+    print(f"Ossl2Meta EXTRACTION COMPLETE")
     print("="*50)
     print(f"Source Header: {db['header']}")
     
@@ -257,4 +406,5 @@ if __name__ == "__main__":
     print(f"Enums:         {len(db['enums']):>4}")
     print(f"Constants:     {len(db['constants']):>4}")
     print(f"Callbacks:     {len(db['callbacks']):>4} ({promoted_cbs} promoted from anonymous pointers)")
+    print(f"Ossl Stacks:   {len(db['ossl_stacks']):>4}")
     print("="*50 + "\n")

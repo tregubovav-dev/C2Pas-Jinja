@@ -41,18 +41,8 @@ do
     [ -e "$db_file" ] || continue
     
     FN=$(basename "$db_file" .json)
+    TPL_FILE="$SCRIPT_DIR/GenericHeader.pas.j2"
     
-    # Template Selection Logic
-    # Some headers require specialized templates (like obj_mac)
-    case "$FN" in
-        "obj_mac")
-            TPL_FILE="$SCRIPT_DIR/TaurusTLSHeader_obj_mac.j2"
-            ;;
-        *)
-            TPL_FILE="$SCRIPT_DIR/TaurusTLSHeader.pas.j2"
-            ;;
-    esac
-
     # Run the generator
     # We suppress standard output here to keep the batch log clean.
     "$PY" "$SOURCE_ROOT"/Meta2Pas.py \

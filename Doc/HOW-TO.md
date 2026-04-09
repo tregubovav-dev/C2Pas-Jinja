@@ -15,30 +15,21 @@ Before running the extractor, you must have a correctly prepared OpenSSL source 
 
 For processing an entire OpenSSL header tree, use the two batch scripts in the `Examples/` directory. This two-phase approach is the recommended workflow.
 
-### Phase 1: Build the Metadata Database (`ExtractAll.sh`)
+### Phase 1: Build the OpenSSL Metadata Database (`ExtractOsslAll.sh`)
 
-Set your OpenSSL root path and run the extraction script from your project directory:
+Set your OpenSSL root path and the legacy symbol directory, then run the extraction script:
 
 ```bash
-# Optional: set the OpenSSL root (defaults to $HOME/dev/openssl)
-export OPENSSL_ROOT=/path/to/openssl
+# Set the OpenSSL 3.x root
+export OPENSSL_ROOT=/home/sasha/dev/openssl
 
-# Optional: set the output directory for JSON files (defaults to ./db)
-export DB_DIR=./db
+# Optional: Set directory with legacy 1.1.1 .num files
+export OPENSSL_LEGACY_DIR=./tmp/nums.1_1_1
 
-bash Examples/ExtractAll.sh
+bash Examples/ExtractOsslAll.sh
 ```
 
-**Expected output:**
-```
-====================================================
-Extraction summary:
-  Processed: 142
-  Created:   130
-  Skipped:   12   # Headers with no exported symbols — this is normal
-  Errors:    0
-====================================================
-```
+**Note for Windows Users**: It is highly recommended to run extraction scripts inside WSL (e.g., Ubuntu-24.04) for native Clang performance and path resolution.
 
 ### Phase 2: Generate Pascal Units (`GenerateAll.sh`)
 
@@ -65,36 +56,32 @@ Generation summary:
 
 ---
 
-## 3. Manual Single-File Processing
+### Option A: OpenSSL Specialization (`Ossl2Meta.py`)
 
-For per-header extraction and generation, use the Python scripts directly.
-
-### Step 1: Extracting to JSON (`C2Meta.py`)
-
-The `C2Meta.py` script analyzes the C source and produces a language-agnostic API database.
+The `Ossl2Meta.py` script is optimized for OpenSSL with automatic path resolution and version tracking.
 
 #### Command Example
 ```bash
-python Source/C2Meta.py \
-  --header /path/to/openssl/include/openssl/evp.h \
-  --search /path/to/openssl/include \
-  --num /path/to/openssl/util/libcrypto.num \
-  --num /path/to/openssl/util/libssl.num \
-  --syms /path/to/openssl/util/other.syms \
-  --out evp.json
+python3 Source/Ossl2Meta.py \
+  --root /home/sasha/dev/openssl \
+  --header ssl.h \
+  --legacy ./tmp/nums.1_1_1 \
+  --out ssl.json
 ```
 
-#### Exit Codes
-| Code | Meaning |
-|------|---------|
-| `0` | Success — JSON file written. |
-| `254` | No symbols found — JSON file **skipped** (use `--force` to override). |
-| Other | Fatal error during extraction. |
+---
 
-#### Options
--   `--force`: Always write the JSON output file, even if no symbols were extracted.
+### Option B: Generic Extraction (`C2Meta.py`)
 
-**Note on `.syms`**: OpenSSL uses `other.syms` to define macro-based aliases (e.g., `EVP_MD_name`). Including this file allows the toolchain to treat these macros as proper routines with signatures.
+Use `C2Meta.py` for standard C libraries that don't use OpenSSL's symbol export lists.
+
+#### Command Example
+```bash
+python3 Source/C2Meta.py \
+  --header /usr/include/sqlite3.h \
+  --search /usr/include \
+  --out sqlite.json
+```
 
 ---
 
@@ -102,17 +89,29 @@ python Source/C2Meta.py \
 
 The `Meta2Pas.py` script takes the JSON database and applies a Jinja2 template to create the `.pas` file. The `--template` argument accepts both absolute and relative paths.
 
-#### Command Example
-```bash
-python Source/Meta2Pas.py \
-  --json evp.json \
-  --template Examples/TaurusTLSHeader.pas.j2 \
-  --type-map Examples/TaurusTLS_type_map.json \
-  --escape-symbol _ \
-  --out TaurusTLSHeaders_evp.pas
-```
+#### Options
+-   `--auto-unit-rename`: (Optional) Scans the rendered output for `unit XXXX;`. If found, it automatically renames the final output file to `XXXX.pas`. Use this to ensure your filename matches your Delphi unit declaration.
+-   `--escape-symbol`: Choose between `_` (default) or `&` for reserved word escaping.
+
+#### Template Context Variables
+Inside your Jinja2 templates, the following additional variables are available:
+-   `out_file`: The basename of the output file defined in the `--out` parameter (e.g., `ssl.pas`).
+-   `routines`, `static_routines`, `constants`, `types`, `enums`, `callbacks`: The API metadata collections.
 
 ---
+
+## 4. Advanced Batch Conversion: TaurusTLS
+
+For specialized project naming conventions, use the dedicated TaurusTLS generation script:
+
+```bash
+# Set input and output directories
+export DB_DIR=./db
+export OUT_DIR=./units
+
+# Generates files with 'TaurusTLSHeaders_' prefix
+bash Examples/GenerateTaurusTlsAll.sh
+```
 
 ## 4. Template Usage Examples
 

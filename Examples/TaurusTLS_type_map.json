@@ -1,9 +1,35 @@
 {
-    "int": "TIdC_INT", "unsigned int": "TIdC_UINT", "long": "TIdC_LONG", "unsigned long": "TIdC_ULONG",
-    "short": "Int16", "unsigned short": "UInt16", "long long": "Int64", "unsigned long long": "UInt64",
-    "size_t": "TIdC_SIZET", "ssize_t": "TIdC_SSIZET", "time_t": "TIdC_TIME_T",
-    "float": "Single", "double": "Double",
-    "void": "Void", "int32_t": "Int32", "uint32_t": "UInt32", "int64_t": "Int64", "uint64_t": "UInt64",
-    "unsigned char": {"0": "TIdC_UCHAR", "1": "PIdAnsiChar"}, "char": {"0": "TIdC_CHAR", "1": "PIdAnsiChar"},
-    "OSSL_PARAM": {"0": "TOSSL_PARAM", "1": "POSSL_PARAM_ARRAY"}
+    "int": "TIdC_INT",
+    "unsigned int": "TIdC_UINT",
+    "long": "TIdC_LONG",
+    "unsigned long": "TIdC_ULONG",
+    "short": "TIdC_SHORT",
+    "unsigned short": "TIdC_USHORT",
+    "long long": "TIdC_LONGLONG",
+    "unsigned long long": "TIdC_ULONGLONG",
+    "size_t": "TIdC_SIZET",
+    "ssize_t": "TIdC_SSIZET",
+    "time_t": "TIdC_TIMET",
+    "float": "TIdC_FLOAT",
+    "double": "TIdC_DOUBLE",
+    "long double": "TIdC_LONGDOUBLE",
+    "char": {
+        "0": "TIdC_INT8",
+        "1": "PIdAnsiChar"
+    },
+    "unsigned char": {
+        "0": "TIdC_UINT8",
+        "1": "PIdAnsiChar"
+    },
+    "int8_t": "TIdC_INT8",
+    "uint8_t": "TIdC_UINT8",
+    "int16_t": "TIdC_INT16",
+    "uint16_t": "TIdC_UINT16",
+    "int32_t": "TIdC_INT32",
+    "uint32_t": "TIdC_UINT32",
+    "int64_t": "TIdC_INT64",
+    "uint64_t": "TIdC_UINT64",
+    "void": {
+        "1": "Pointer"
+    }
 }

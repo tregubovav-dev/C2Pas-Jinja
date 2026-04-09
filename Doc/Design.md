@@ -27,30 +27,36 @@ The extractor expects the following OpenSSL directory layout:
 
 ---
 
-## 2. Stage 1: The Extractor (`C2Meta.py`)
+---
 
-The extractor's job is to turn a C header into a language-agnostic "API Database" in JSON format.
+## 2. Stage 1: The Extractors
 
-### Clang AST Analysis
-The tool uses `libclang` to parse the header. Unlike regex-based tools, this understands C scoping, macro expansion, and type decay. It uses `os.path.realpath` for all path comparisons to ensure reliability across different environments.
+The toolchain now provides two specialized extractors for Stage 1.
 
-### Key Logic Modules
--   **Export Resolver**: Cross-references every function found in the AST against OpenSSL's `.num` and `.syms` files. If a function isn't exported, it is ignored.
--   **Macro Routine Promotion**: If a `#define aa bb` exists where `bb` is a known routine, the tool promotes `aa` to a **Routine** (inheriting the signature of `bb`) and removes `aa` from the constants list.
--   **Anonymous Callback Promotion**: Pascal requires named types for function pointers. When the extractor finds an "inline" callback in a C parameter, it promotes the anonymous pointer to a named Pascal type: `[Parent]_[Param]_cb`.
--   **Signature De-duplication**: To prevent type bloat, the tool uses a global registry to hash function signatures. Structurally identical anonymous callbacks share the same Pascal type name.
--   **Sugar-Aware Type Parsing**: 
-    -   **For Parameters**: The tool stops "unwrapping" types when it hits a `typedef`. This ensures `EVP_MD_CTX *` remains `EVP_MD_CTX` (the "Sugar") rather than resolving to the internal struct name.
-    -   **For Type Definitions**: The tool resolves the alias to its underlying structure to allow the generator to decide between a `record` or an `alias`.
--   **Array Decay**: Automatically identifies `Type[]` parameters as `pointer_depth: 1` using AST element unwrapping.
+### 2.1 Generic Extractor (`C2Meta.py`)
+The `C2Meta.py` script is a library-agnostic C-to-JSON parser. It extracts *all* exported declarations (functions, macros, typedefs, structs) encountered within the target header.
+-   **No OpenSSL dependencies**: It does not require `.num` or `.syms` files.
+-   **Perfect for general C libraries**: Ideal for generating headers for any dynamic library without version-tracking metadata.
 
-### Conditional Output & CI Integration
--   **Skip Empty Output**: By default, `C2Meta.py` will **not** create a JSON file if no symbols were extracted from the header. This prevents the build from being polluted with empty files.
--   **`--force` Flag**: Add `--force` to override the skip behavior and always write the JSON file.
--   **Exit Codes**:
-    -   `0`: Extraction succeeded and JSON file was written.
-    -   `254`: Extraction completed but no symbols were found; JSON file was **skipped**.
-    -   Other non-zero: A fatal error occurred.
+### 2.2 OpenSSL Specialized Extractor (`Ossl2Meta.py`)
+The `Ossl2Meta.py` script is a direct descendant of the original extractor, specialized for the OpenSSL ecosystem.
+*   **Export Resolver**: Cross-references every function against OpenSSL's `.num` and `.syms` files.
+*   **Historical Version Tracking**: Uses legacy `.num` files (via `--legacy`) to accurately identify when a symbol was first introduced, replacing generic `3_0_0` markers with specific versions (e.g., `1_1_0`).
+*   **Safestack Grouping**: Detects `STACK_OF` macro instantiations and groups related helper macros (e.g., `sk_XXX_num`, `ossl_check_XXX_sk_type`) into a specialized `ossl_stacks` collection to prevent global namespace pollution.
+*   **Simplified CLI**: Assumes standard OpenSSL directory structures.
+
+### Key Extraction Logic (Shared)
+Both extractors utilize the following core `CExtractor` logic:
+-   **Clang AST Analysis**: Understands C scoping, macro expansion, and type decay.
+-   **Macro Routine Promotion**: Promotes object-like macros that alias routines into the **Routines** list with full signature inheritance.
+-   **High-Fidelity Callback Extraction**: 
+    -   **Typedef Preservation**: Preserves the original C name for named procedural types.
+    -   **Anonymous Promotion**: Promotes "inline" function pointers to named Pascal types using the `{Parent}_{Param}_cb` convention.
+    -   **Parameter Intelligence**: Extracts actual parameter names (e.g., `ssl`, `identity`) from the AST instead of using generic `arg1` placeholders.
+-   **Signature De-duplication**: Uses a global registry to ensure structurally identical anonymous callbacks share the same type name, while prioritizing existing `typedef` names.
+-   **Sugar-Aware Type Parsing**: Preserves "sugared" types (like `EVP_MD_CTX`) for parameters while resolving their underlying definitions for type declarations.
+
+---
 
 ---
 
@@ -84,8 +90,10 @@ Delphi is case-insensitive, while C is case-sensitive. To prevent `E2004: Identi
 ### Template Path Resolution
 The generator uses the template file's own directory as the Jinja2 search root. This means the `--template` argument accepts both **absolute** and **relative** paths transparently, making it suitable for use from batch scripts in any working directory.
 
-### File Output
--   **CRLF Enforcement**: The generator always enforces Windows-style line endings (`\r\n`) regardless of the host OS.
+### File Output & Unit Synchronization
+-   **CRLF Enforcement**: The generator always enforces Windows-style line endings (`\r\n`).
+-   **Unit Name Discovery (Experimental)**: The script provides an optional `--auto-unit-rename` flag. This feature ensures that the target filename matches the `unit Name;` declaration produced by the template, which is required for the Delphi compiler.
+-   **Template Context**: The generator injects the `out_file` variable into the Jinja2 context, allowing templates to dynamically generate unit names that align with the intended output path.
 
 ---
 
@@ -115,11 +123,11 @@ The generator uses the template file's own directory as the Jinja2 search root. 
 
 For processing an entire OpenSSL header tree, two helper scripts are provided in the `Examples/` directory. They implement the recommended two-phase workflow.
 
-### `ExtractAll.sh` — Phase 1: Build the Metadata Database
-Iterates over all public headers in `include/openssl/`, runs `C2Meta.py` on each, and populates a local `db/` directory with JSON files. It correctly interprets exit code `254` to report skipped headers (no symbols) separately from errors.
+### `ExtractOsslAll.sh` — Phase 1: Build the OpenSSL Metadata Database
+Iterates over headers in `include/openssl/`, runs `Ossl2Meta.py` on each, and populates `db/`. It supports `OPENSSL_LEGACY_DIR` for historical version enrichment.
 
 ### `GenerateAll.sh` — Phase 2: Generate Pascal Units
-Iterates over all JSON files in the `db/` directory and runs `Meta2Pas.py` to produce `.pas` units in a local `units/` directory. It contains the template selection logic to route specific headers (e.g., `obj_mac`) to specialized templates.
+Iterates over JSON files and runs `Meta2Pas.py`. It contains routing logic to select between `TaurusTLSHeader.pas.j2` (for OpenSSL) and `GenericHeader.pas.j2` (for other libraries).
 
 > **Key benefit of the two-phase approach**: The database only needs to be built once (in a Linux/WSL environment with `clang`). Template iteration and code generation can then be performed independently on any machine.
 

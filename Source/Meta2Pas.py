@@ -173,7 +173,7 @@ def mark_collisions(items, seen_map):
         # Rule 1: Redundant Alias Check (e.g., DH_METHOD vs dh_method)
         if item.get('kind') == 'alias':
             parent_name = item.get('parent_type', {}).get('name', '')
-            if name_lower == parent_name.lower():
+            if parent_name and name_lower == parent_name.lower() and name != parent_name:
                 item['collision_with'] = parent_name
                 continue
         
@@ -223,6 +223,9 @@ if __name__ == "__main__":
     # Priority 5: Enums (The enum type name itself)
     enums = mark_collisions(db.get('enums', []), seen_identifiers)
 
+    # Priority 6: OpenSSL Stacks
+    ossl_stacks = db.get('ossl_stacks', [])
+
     # 3. Setup Jinja2 Environment
     # Use the template's own directory as the search root so that
     # both absolute and relative paths work correctly.
@@ -248,7 +251,8 @@ if __name__ == "__main__":
         callbacks=callbacks, 
         constants=constants, 
         types=types, 
-        enums=enums
+        enums=enums,
+        ossl_stacks=ossl_stacks
     )    
     with open(args.out, "w", encoding="utf-8", newline='\r\n') as f: f.write(output)
 
@@ -264,4 +268,6 @@ if __name__ == "__main__":
     print(f"  Enums:       {len(enums):>4}")
     print(f"  Constants:   {len(constants):>4}")
     print(f"  Callbacks:   {len(callbacks):>4}")
+    if 'ossl_stacks' in db:
+        print(f"  OSSL Stacks: {len(ossl_stacks):>4}")
     print("="*50 + "\n")
