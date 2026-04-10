@@ -17,7 +17,8 @@ import clang.cindex
 
 class CExtractor:
     def __init__(self):
-        self.db = {            "header": "", "types": [], "enums": [], 
+        self.db = {
+            "header": "", "types": [], "enums": [], 
             "callbacks": [], "constants": [], "routines": []
         }
         self.processed_symbols = set()
@@ -214,8 +215,22 @@ class CExtractor:
 
             elif node.kind in (clang.cindex.CursorKind.STRUCT_DECL, clang.cindex.CursorKind.UNION_DECL):
                 if node.spelling and node.spelling not in self.processed_symbols:
-                    self.db["types"].append({"name": node.spelling, "kind": "struct" if node.kind == clang.cindex.CursorKind.STRUCT_DECL else "union",
-                                             "is_opaque": not node.is_definition(), "c_decl": self.get_source_snippet(node)})
+                    fields = []
+                    if node.is_definition():
+                        for child in node.get_children():
+                            if child.kind == clang.cindex.CursorKind.FIELD_DECL:
+                                fields.append({
+                                    "name": child.spelling,
+                                    "type": self.parse_type_info(child.type, cursor=child)
+                                })
+                    
+                    self.db["types"].append({
+                        "name": node.spelling, 
+                        "kind": "struct" if node.kind == clang.cindex.CursorKind.STRUCT_DECL else "union",
+                        "is_opaque": not node.is_definition(), 
+                        "fields": fields,
+                        "c_decl": self.get_source_snippet(node)
+                    })
                     self.processed_symbols.add(node.spelling)
 
         self.post_process_aliases()

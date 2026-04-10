@@ -149,6 +149,12 @@ class Generator:
             return f"procedure{p_str}; cdecl" if is_var else f"procedure {name}{p_str}; cdecl"
         return f"function{p_str}: {ret}; cdecl" if is_var else f"function {name}{p_str}: {ret}; cdecl"
 
+    def pas_field(self, f):
+        """Formats a struct field for Pascal."""
+        name = self.pas_name(f['name'])
+        f_type = self.pas_type(f['type'])
+        return f"{name}: {f_type};"
+
 def version_val_filter(value):
     if not value: return 0
     parts = [int(x) for x in str(value).replace('.', '_').split('_') if x.isdigit()]
@@ -238,6 +244,7 @@ if __name__ == "__main__":
         'pas_version': gen.pas_version, 
         'pas_expression': gen.pas_expression, 
         'pas_sig': gen.pas_sig, 
+        'pas_field': gen.pas_field,
         'version_val': version_val_filter
     })
     env.tests.update({'match': match_test})

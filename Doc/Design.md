@@ -53,8 +53,12 @@ Both extractors utilize the following core `CExtractor` logic:
     -   **Typedef Preservation**: Preserves the original C name for named procedural types.
     -   **Anonymous Promotion**: Promotes "inline" function pointers to named Pascal types using the `{Parent}_{Param}_cb` convention.
     -   **Parameter Intelligence**: Extracts actual parameter names (e.g., `ssl`, `identity`) from the AST instead of using generic `arg1` placeholders.
--   **Signature De-duplication**: Uses a global registry to ensure structurally identical anonymous callbacks share the same type name, while prioritizing existing `typedef` names.
--   **Sugar-Aware Type Parsing**: Preserves "sugared" types (like `EVP_MD_CTX`) for parameters while resolving their underlying definitions for type declarations.
+- **Signature De-duplication**: Uses a global registry to ensure structurally identical anonymous callbacks share the same type name, while prioritizing existing `typedef` names.
+- **Sugar-Aware Type Parsing**: Preserves "sugared" types (like `EVP_MD_CTX`) for parameters while resolving their underlying definitions for type declarations.
+- **Structure Decomposition**: 
+    - Extracts fields from `struct` and `union` definitions.
+    - Opaque types remain as empty record placeholders.
+    - Defined types include a `fields` collection with names and fully resolved type information.
 
 ---
 

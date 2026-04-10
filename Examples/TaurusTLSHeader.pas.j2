@@ -26,6 +26,34 @@ uses
   TaurusTLSHeaders_types,
   TaurusTLSHeaders_core;
 
+{# --- MACROS FOR RECORD EXPANSION --- #}
+{% set expand_records = True %}{# Control variable for record expansion #}
+
+{% macro render_record_body(t) -%}
+{% if t.fields %}
+  record
+  {% for f in t.fields %}
+    {{ f | pas_field }}
+  {% endfor %}
+  end;
+{% else %}
+  record end;
+{% endif %}
+{%- endmacro %}
+
+{% macro render_union_body(t) -%}
+{% if t.fields %}
+  record
+    case Integer of
+    {% for f in t.fields %}
+      {{ loop.index0 }}: ( {{ f | pas_field }} );
+    {% endfor %}
+  end;
+{% else %}
+  record end;
+{% endif %}
+{%- endmacro %}
+
 {% if types %}{# IF AT LEAST A TYPE DEFINITION EXISTS - DO GENERATE DECLARATION(S) #}
 // =============================================================================
 // TYPE DECLARATIONS
@@ -42,7 +70,9 @@ type
 {% set t_info = {"name": t.name, "pointer_depth": 0} %}
   {{ p_info | pas_type }} = ^{{ t_info | pas_type }};
 {% if t.kind == "struct" %}
-  {{ t_info | pas_type }} = record end;
+  {{ t_info | pas_type }} = {% if expand_records %}{{ render_record_body(t) }}{% else %}record end;{% endif %}
+{% elif t.kind == "union" %}
+  {{ t_info | pas_type }} = {% if expand_records %}{{ render_union_body(t) }}{% else %}record end;{% endif %}
 {% elif t.kind == "alias" %}
   {{ t_info | pas_type }} = {{ t.parent_type | pas_type }};
 {% endif %}

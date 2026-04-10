@@ -129,6 +129,37 @@ class OpenSSLExtractor:
         name = name.replace('const ', '').replace('struct ', '').replace('enum ', '').replace('union ', '').strip()
         name = name.split('(')[0].replace('*', '').strip()
         
+        # Detect anonymous structs/unions used as fields
+        if not name or '(' in name:
+            decl = current_type.get_declaration()
+            if decl.kind in (clang.cindex.CursorKind.STRUCT_DECL, clang.cindex.CursorKind.UNION_DECL):
+                kind_str = "struct" if decl.kind == clang.cindex.CursorKind.STRUCT_DECL else "union"
+                # Promote to a named type if we have context
+                if self.current_parent and param_name:
+                    name = f"{self.current_parent}_{param_name}_{kind_str}"
+                    # Only add to global types if not already there
+                    if not any(t['name'] == name for t in self.db["types"]):
+                        fields = []
+                        for child in decl.get_children():
+                            if child.kind == clang.cindex.CursorKind.FIELD_DECL:
+                                # Recursively parse field types, using the new name as parent context
+                                old_parent = self.current_parent
+                                self.current_parent = name
+                                fields.append({
+                                    "name": child.spelling,
+                                    "type": self.parse_type_info(child.type, child.spelling, child)
+                                })
+                                self.current_parent = old_parent
+                        
+                        self.db["types"].append({
+                            "name": name, "kind": kind_str, "is_opaque": False,
+                            "fields": fields, "is_promoted": True,
+                            "c_decl": self.get_source_snippet(decl)
+                        })
+                        self.processed_symbols.add(name)
+                else:
+                    name = "void" # Fallback for truly untrackable anonymous types
+
         return {"name": name, "pointer_depth": pointer_depth, "is_const": type_obj.is_const_qualified()}
 
     def post_process_aliases(self):
@@ -279,8 +310,22 @@ class OpenSSLExtractor:
 
             elif node.kind in (clang.cindex.CursorKind.STRUCT_DECL, clang.cindex.CursorKind.UNION_DECL):
                 if node.spelling and node.spelling not in self.processed_symbols:
-                    self.db["types"].append({"name": node.spelling, "kind": "struct" if node.kind == clang.cindex.CursorKind.STRUCT_DECL else "union",
-                                             "is_opaque": not node.is_definition(), "c_decl": self.get_source_snippet(node)})
+                    fields = []
+                    if node.is_definition():
+                        for child in node.get_children():
+                            if child.kind == clang.cindex.CursorKind.FIELD_DECL:
+                                fields.append({
+                                    "name": child.spelling,
+                                    "type": self.parse_type_info(child.type, cursor=child)
+                                })
+
+                    self.db["types"].append({
+                        "name": node.spelling, 
+                        "kind": "struct" if node.kind == clang.cindex.CursorKind.STRUCT_DECL else "union",
+                        "is_opaque": not node.is_definition(), 
+                        "fields": fields,
+                        "c_decl": self.get_source_snippet(node)
+                    })
                     self.processed_symbols.add(node.spelling)
 
         self.post_process_aliases()
