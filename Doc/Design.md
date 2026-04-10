@@ -59,6 +59,15 @@ Both extractors utilize the following core `CExtractor` logic:
     - Extracts fields from `struct` and `union` definitions.
     - Opaque types remain as empty record placeholders.
     - Defined types include a `fields` collection with names and fully resolved type information.
+    - **Self-Filtering**: Anonymous types (internal to structs/unions) are filtered out from the global types collection.
+- **Attention-Driven Manual Review**:
+    - Both extractors flag complex C constructs using a `needs_attention` boolean in the JSON output.
+    - **Trigger Scenarios**:
+        - All C `union` types.
+        - Any `struct` containing a `union` field.
+        - Anonymous callbacks promoted to named types.
+        - Macro-based or `inline` routine implementations.
+    - When flagged, the extractor suppresses automatic field mapping (`fields: []`) to prevent incorrect Pascal code generation, signaling that manual verification is required.
 
 ---
 
@@ -67,6 +76,11 @@ Both extractors utilize the following core `CExtractor` logic:
 ## 3. Stage 2: The Generator (`Meta2Pas.py`)
 
 The generator consumes the JSON database and applies a Jinja2 template to produce the final `.pas` unit.
+
+### Defensive Rendering with `needs_attention`
+The templates leverage the `needs_attention` flag to maintain code safety:
+- **TODO Generation**: Flagged entities automatically generate `TODO` items visible in the Delphi IDE.
+- **C Source Reference**: The original C declaration is rendered inside a comment block directly above the placeholder, providing context for manual implementation without breaking the Pascal compiler.
 
 ### Hierarchical Type Mapping
 The generator uses an external `typemap.json` with a multi-tier priority system:

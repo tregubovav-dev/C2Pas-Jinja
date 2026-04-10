@@ -60,9 +60,8 @@ uses
 // =============================================================================
 type
 {% for t in types %}
-    {% if t.collision_with %}{# Explicitly add a comment with case-sensitive collision  #}
-  { TODO 1 -cID Collision detected : Review it and update. }
-  // Collision with {{ t.collision_with }}:
+    {% if t.collision_with or t.needs_attention %}{# Explicitly add a comment with case-sensitive collision or needs attention #}
+  { TODO 1 -cID {% if t.collision_with %}Collision detected{% else %}Needs manual mapping (Union or complex type){% endif %} : Review it and update. }
   // {{ t.c_decl | replace('\n', '\n  // ') }}
 {% else %}{# Otherwise generate type declaration #}
   {# Construct info objects for P-type (depth 1) and T-type (depth 0) #}
@@ -88,8 +87,8 @@ type
 // =============================================================================
 type
 {% for enum_obj in enums %}
-{% if enum_obj.collision_with %}
-  // Collision with {{ enum_obj.collision_with }}: {{ enum_obj.name }}
+{% if enum_obj.collision_with or enum_obj.needs_attention %}
+  // Collision or Needs Attention: {{ enum_obj.name }}
 {% else %}
   // Enum: {{ enum_obj.name }}
   {{ {"name": enum_obj.name, "pointer_depth": 0} | pas_type }} = (
@@ -108,8 +107,13 @@ type
 // =============================================================================
 type
 {% for c in callbacks %}
+{% if c.needs_attention %}
+  { TODO 1 -cID Anonymous Callback : Promoted from pointer. Review name and placement. }
+  // {{ c.name }} = {{ c | pas_sig(is_var=True) }};
+{% else %}
   {# Use pas_type at depth 0 to ensure the 'T' prefix is added #}
   {{ {"name": c.name, "pointer_depth": 0} | pas_type }} = {{ c | pas_sig(is_var=True) }};
+{% endif %}
 {% endfor %}
 {% endif %}{# END OF CALLBACK DECLARATIONS SECTION #}
 {% if constants %}{# IF AT LEAST A CONSTANT DEFINITION EXISTS - DO GENERATE DECLARATION(S) #}
@@ -133,8 +137,13 @@ var
 
 {% for r in routines if not r.is_macro and not r.is_inline %}
 {% if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+{% if r.needs_attention %}
+  { TODO 1 -cID Routine needs attention (Inline or Definition in header) }
+  // {{ r.name }}: {{ r | pas_sig(is_var=True) }} = nil;
+{% else %}
   {{ r.name }}: {{ r | pas_sig(is_var=True) }} = nil;{% if r.deprecated %} // Deprecated in {{ r.deprecated }}{% endif +%}
   {$EXTERNALSYM {{ r.name }}}
+{% endif %}
 
 {% endif %}
 {% endfor %}
@@ -148,7 +157,12 @@ var
 
 {% for r in routines %}
 {% if not r.deprecated or r.deprecated | version_val > "1_1_0" | version_val %}
+{% if r.needs_attention %}
+  { TODO 1 -cID Routine needs attention (Inline or Definition in header) }
+  // {{ r | pas_sig }};
+{% else %}
 {{ r | pas_sig }};{% if r.deprecated %} deprecated 'In OpenSSL {{ r.deprecated }}';{% endif +%}
+{% endif %}
 {% endif %}
 {% endfor %}
 {$ENDIF OPENSSL_STATIC_LINK_MODEL}
@@ -160,8 +174,13 @@ var
 // =============================================================================
 
 {% for r in static_routines %}
+{% if r.needs_attention %}
+  { TODO 1 -cID Macro/Inline Routine : Manual implementation required. }
+  // {{ r | pas_sig }};
+{% else %}
 {{ r | pas_sig }};{% if r.deprecated %} deprecated 'In OpenSSL {{ r.deprecated }}';{% endif +%}
   {$IFDEF USE_INLINE}inline; {$ENDIF}
+{% endif %}
 
 {% endfor %}
 {% endif %}{# END OF INLINE OR MACRO DEFINED ROUTINES DECLARATIONS SECTION #}

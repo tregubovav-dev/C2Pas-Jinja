@@ -107,6 +107,7 @@ class CExtractor:
                     "return_type": self.parse_type_info(raw_func_type.get_result()),
                     "params": cb_params,
                     "is_promoted": not is_typedef,
+                    "needs_attention": not is_typedef,
                     "c_decl": self.get_source_snippet(target_cursor) if is_typedef else f"Promoted from {self.current_parent}"
                 })
             return {"name": cb_name, "pointer_depth": 0, "is_callback": True}
@@ -142,6 +143,7 @@ class CExtractor:
                     "name": c['name'], "return_type": target["return_type"],
                     "params": target["params"], "is_macro": True, "is_inline": True,
                     "is_alias": True, "alias_target": target_name,
+                    "needs_attention": True,
                     "c_decl": c.get("c_decl")
                 })
             else:
@@ -166,7 +168,9 @@ class CExtractor:
                 self.db["routines"].append({
                     "name": node.spelling, "return_type": self.parse_type_info(node.result_type),
                     "params": params,
-                    "is_macro": False, "c_decl": self.get_source_snippet(node)
+                    "is_macro": False, 
+                    "needs_attention": node.is_definition(),
+                    "c_decl": self.get_source_snippet(node)
                 })
                 self.processed_symbols.add(node.spelling)
 
@@ -183,6 +187,7 @@ class CExtractor:
                         "name": name, "return_type": {"name": "int", "pointer_depth": 0, "is_const": False, "is_guess": True},
                         "params": [{"name": p, "type": {"name": "Pointer", "pointer_depth": 0, "is_const": False, "is_guess": True}} for p in macro_params],
                         "is_macro": True, "is_inline": True,
+                        "needs_attention": True,
                         "c_decl": self.get_source_snippet(node)
                     })
                 elif len(tokens) > 1:
@@ -214,21 +219,33 @@ class CExtractor:
                         self.processed_symbols.add(node.spelling)
 
             elif node.kind in (clang.cindex.CursorKind.STRUCT_DECL, clang.cindex.CursorKind.UNION_DECL):
-                if node.spelling and node.spelling not in self.processed_symbols:
+                # Skip truly anonymous types or Clang-generated "unnamed at" placeholders
+                if node.spelling and "(unnamed at" not in node.spelling and node.spelling not in self.processed_symbols:
                     fields = []
+                    needs_attention = (node.kind == clang.cindex.CursorKind.UNION_DECL)
                     if node.is_definition():
                         for child in node.get_children():
                             if child.kind == clang.cindex.CursorKind.FIELD_DECL:
+                                # Check if field is a union or anonymous struct/union
+                                f_type_canon = child.type.get_canonical()
+                                if f_type_canon.kind == clang.cindex.TypeKind.RECORD:
+                                    f_decl = f_type_canon.get_declaration()
+                                    if f_decl.kind == clang.cindex.CursorKind.UNION_DECL:
+                                        needs_attention = True
+                                
                                 fields.append({
                                     "name": child.spelling,
                                     "type": self.parse_type_info(child.type, cursor=child)
                                 })
+                    
+                    if needs_attention: fields = []
                     
                     self.db["types"].append({
                         "name": node.spelling, 
                         "kind": "struct" if node.kind == clang.cindex.CursorKind.STRUCT_DECL else "union",
                         "is_opaque": not node.is_definition(), 
                         "fields": fields,
+                        "needs_attention": needs_attention,
                         "c_decl": self.get_source_snippet(node)
                     })
                     self.processed_symbols.add(node.spelling)
