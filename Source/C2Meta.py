@@ -191,7 +191,7 @@ class CExtractor:
                         "c_decl": self.get_source_snippet(node)
                     })
                 elif len(tokens) > 1:
-                    body = "".join([t.spelling for t in tokens[1:]])
+                    body = "".join([t.spelling for t in tokens[1:] if t.kind != clang.cindex.TokenKind.COMMENT])
                     if body.strip():
                         self.db["constants"].append({"name": name, "value": body.strip(), "c_decl": self.get_source_snippet(node)})
                 self.processed_symbols.add(name)

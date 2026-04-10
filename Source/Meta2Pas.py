@@ -129,7 +129,12 @@ class Generator:
 
     def pas_expression(self, val):
         if not val: return ""
-        val = str(val).replace("'", "''").replace('"', "'")
+        val = str(val)
+        # Strip C-style comments (block and line)
+        val = re.sub(r'/\*.*?\*/', '', val, flags=re.DOTALL)
+        val = re.sub(r'//.*', '', val)
+        
+        val = val.replace("'", "''").replace('"', "'")
         val = re.sub(r'0[xX]([0-9a-fA-F]+)', r'$\1', val)
         val = val.replace('<<', ' shl ').replace('>>', ' shr ').replace('|', ' or ').replace('&', ' and ')
         val = val.replace('~', ' not ').replace('&&', ' and ').replace('||', ' or ').replace('!', ' not ')
